@@ -1,6 +1,9 @@
 import os
 import json
 import time
+import random
+import threading
+import sys
 
 from llm.groq_client import generate
 from core.tools import TOOLS_SCHEMA, execute_tool
@@ -8,6 +11,78 @@ from utils.ui import console
 
 import groq
 import re
+
+# Fun spinner messages that cycle while the LLM is thinking
+SPINNER_MESSAGES = [
+    "Thinking really hard",
+    "Consulting the neural weights",
+    "Crunching tokens",
+    "Exploring the solution space",
+    "Parsing the possibilities",
+    "Summoning the right answer",
+    "Reading between the lines",
+    "Optimizing the approach",
+    "Brewing the perfect response",
+    "Connecting the dots",
+    "Reasoning through it",
+    "Almost there",
+    "Doing the math",
+    "Untangling the logic",
+    "Cross-referencing patterns",
+    "Synthesizing insights",
+    "Weighing the options",
+    "Searching the latent space",
+    "Activating neurons",
+    "Running inference",
+]
+
+SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+class _Spinner:
+    """A threaded spinner with rotating fun messages."""
+    def __init__(self):
+        self._running = False
+        self._thread = None
+    
+    def start(self):
+        self._running = True
+        self._thread = threading.Thread(target=self._animate, daemon=True)
+        self._thread.start()
+    
+    def stop(self):
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=1)
+        # Clear the spinner line
+        sys.stdout.write("\r" + " " * 60 + "\r")
+        sys.stdout.flush()
+    
+    def _animate(self):
+        msg = random.choice(SPINNER_MESSAGES)
+        frame_idx = 0
+        cycles = 0
+        while self._running:
+            frame = SPINNER_FRAMES[frame_idx % len(SPINNER_FRAMES)]
+            display = f"\r  {frame} {msg}..."
+            sys.stdout.write(display)
+            sys.stdout.flush()
+            time.sleep(0.08)
+            frame_idx += 1
+            cycles += 1
+            # Change message every ~3 seconds
+            if cycles % 38 == 0:
+                sys.stdout.write("\r" + " " * 60 + "\r")
+                sys.stdout.flush()
+                msg = random.choice(SPINNER_MESSAGES)
+    
+    def __enter__(self):
+        self.start()
+        return self
+    
+    def __exit__(self, *args):
+        self.stop()
+
+spinner = _Spinner()
 
 def _safe_parse_json(raw: str) -> dict:
     """Try to parse JSON, auto-fixing common LLM mistakes."""
@@ -138,7 +213,8 @@ def call_llm_with_tools(messages):
     
     while True:
         try:
-            message = generate(messages, tools=active_tools)
+            with spinner:
+                message = generate(messages, tools=active_tools)
             # Success! Clean up any retry messages we injected
             if retry_msg_count > 0:
                 for _ in range(retry_msg_count):
