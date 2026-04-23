@@ -743,6 +743,36 @@ CORE_TOOLS_SCHEMA = [
                 "required": ["question"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "codebase_search",
+            "description": "Search the codebase using BOTH semantic similarity AND regex. Best tool for finding specific code, functions, or patterns.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "What you're looking for."},
+                    "regex": {"type": "string", "description": "Optional regex pattern."},
+                    "directory": {"type": "string", "description": "Optional subdirectory."}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_command",
+            "description": "Run a git command (e.g., 'status', 'add -A', 'commit -m \"msg\"', 'push').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Git subcommand without 'git' prefix."}
+                },
+                "required": ["command"]
+            }
+        }
     }
 ]
 
