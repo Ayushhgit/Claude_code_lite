@@ -622,6 +622,130 @@ def semantic_replace_tool(path: str, target: str, replacement: str) -> str:
     except Exception as e:
         return f"Error in semantic replace: {e}"
 
+# Minimal tool set for smaller models that can't handle 24+ tools
+CORE_TOOLS_SCHEMA = [
+    {
+        "type": "function",
+        "function": {
+            "name": "cat",
+            "description": "Read a file's contents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path to read."},
+                    "start_line": {"type": "integer", "description": "Optional start line."},
+                    "end_line": {"type": "integer", "description": "Optional end line."},
+                    "line_start": {"type": "integer", "description": "Alias for start_line."},
+                    "line_end": {"type": "integer", "description": "Alias for end_line."}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ls",
+            "description": "List directory contents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Directory to list."}
+                },
+                "required": ["directory"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": "Create or overwrite a file with new content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path."},
+                    "content": {"type": "string", "description": "Full file content."}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Execute a shell command.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The command to run."}
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grep",
+            "description": "Search for a regex pattern in files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Directory to search."},
+                    "pattern": {"type": "string", "description": "Regex pattern."}
+                },
+                "required": ["directory", "pattern"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_repo_map",
+            "description": "Get a tree map of the repository.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Root directory."}
+                },
+                "required": ["directory"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "replace_in_file",
+            "description": "Replace exact text in a file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path."},
+                    "target": {"type": "string", "description": "Text to find."},
+                    "replacement": {"type": "string", "description": "Replacement text."}
+                },
+                "required": ["path", "target", "replacement"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_human",
+            "description": "Ask the user a question.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "Question to ask."}
+                },
+                "required": ["question"]
+            }
+        }
+    }
+]
+
 TOOLS_SCHEMA = [
     {
         "type": "function",

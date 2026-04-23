@@ -57,19 +57,36 @@ def call_llm_with_tools(messages):
             continue
         except groq.BadRequestError as e:
             error_msg = str(e)
-            console.print(f"  [bold red][LLM Error caught, asking it to retry]: {error_msg[:100]}...[/bold red]")
             retries += 1
-            if retries > 3:
-                return "Error: LLM repeatedly failed to generate valid tool calls. Aborting."
             
-            if messages and messages[-1].get("role") == "user" and "Your last tool call failed" in messages[-1].get("content", ""):
-                messages.pop()
-                
-            messages.append({
-                "role": "user",
-                "content": f"Your last tool call failed with a JSON parsing error. Please make sure your tool arguments are valid JSON, properly escape quotes/newlines, and DO NOT try to edit multiple files in one single edit_file call. Error details: {error_msg}"
-            })
-            continue
+            if retries >= 3:
+                # Last resort: try with NO tools (text-only response)
+                console.print(f"  [bold yellow]⚠ Tool calls keep failing. Falling back to text-only response...[/bold yellow]")
+                try:
+                    message = generate(messages, tools=None)
+                    return message.content.strip() if message.content else "Error: Agent could not generate a response."
+                except Exception:
+                    return "Error: LLM repeatedly failed. Please try a simpler request."
+            
+            if retries >= 2:
+                # Fallback: use only core tools that small models handle well
+                console.print(f"  [bold yellow]⚠ Retrying with reduced tool set for stability...[/bold yellow]")
+                from core.tools import CORE_TOOLS_SCHEMA
+                try:
+                    message = generate(messages, tools=CORE_TOOLS_SCHEMA)
+                    retries = 0
+                except groq.BadRequestError:
+                    console.print(f"  [bold red][LLM Error]: {error_msg[:100]}...[/bold red]")
+                    continue
+            else:
+                console.print(f"  [bold red][LLM Error caught, retrying]: {error_msg[:80]}...[/bold red]")
+                if messages and messages[-1].get("role") == "user" and "Your last tool call failed" in messages[-1].get("content", ""):
+                    messages.pop()
+                messages.append({
+                    "role": "user",
+                    "content": f"Your last tool call failed validation. Use ONLY the exact parameter names from the tool schema. Do NOT add extra parameters. Error: {error_msg[:200]}"
+                })
+                continue
 
         if getattr(message, "tool_calls", None):
             import re
