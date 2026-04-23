@@ -1,5 +1,8 @@
 from core.agent import init_messages, run_turn, _estimate_tokens
 import os
+import sys
+import time
+import random
 import subprocess
 from dotenv import load_dotenv
 from utils.ui import console
@@ -7,6 +10,8 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.rule import Rule
 from rich.table import Table
+from rich.live import Live
+from rich.text import Text
 from rich import box
 
 from prompt_toolkit import PromptSession
@@ -23,9 +28,48 @@ BANNER = r"""
 ██╔══██╗██╔══╝  ╚██╗ ██╔╝██║
 ██║  ██║███████╗ ╚████╔╝ ██║
 ╚═╝  ╚═╝╚══════╝  ╚═══╝  ╚═╝
-
-        ⚡ R E V I ⚡
 """
+
+TAGLINE = "⚡ R E V I ⚡"
+
+TIPS = [
+    "Tip: Use /help to see all available commands",
+    "Tip: Type /status to see your session stats at any time",
+    "Tip: Use /compact to free up context space when things get slow",
+    "Tip: The agent remembers your preferences in .agent_memory.md",
+    "Tip: Use /undo to rollback the last git commit instantly",
+    "Tip: Press Enter after a response to skip feedback",
+    "Tip: The agent can search arXiv papers for ML references",
+    "Tip: Say 'f' in the feedback prompt to auto-fix the last response",
+    "Tip: The agent auto-heals broken code when it detects errors",
+    "Tip: Use /diff to see what the agent changed before committing",
+]
+
+GREETINGS = [
+    "Ready to build something extraordinary.",
+    "Let's write some beautiful code together.",
+    "Your AI pair programmer is online.",
+    "Warmed up and ready to ship.",
+    "All systems nominal. Let's go.",
+    "Context loaded. Brain initialized. Let's cook.",
+    "Standing by for your instructions, captain.",
+    "I've scanned the codebase. What shall we improve?",
+    "Time to turn coffee into code.",
+    "Another day, another deploy. What's the plan?",
+]
+
+THINKING_VERBS = [
+    "Analyzing the codebase",
+    "Studying the architecture",
+    "Crafting the perfect solution",
+    "Reasoning about the problem",
+    "Exploring possible approaches",
+    "Thinking deeply",
+    "Mapping out the plan",
+    "Searching for the best pattern",
+    "Designing the implementation",
+    "Building a mental model",
+]
 
 HELP_TEXT = """
 ## Slash Commands
@@ -79,6 +123,51 @@ PT_STYLE = PTStyle.from_dict({
     "completion-menu.meta.completion.current":  "bg:#89b4fa #1e1e2e italic",
 })
 
+def _typewriter(text, style="bold cyan", delay=0.02):
+    """Print text with a typewriter animation."""
+    for char in text:
+        console.print(char, end="", style=style)
+        time.sleep(delay)
+    console.print()
+
+def _animated_startup(path, project_name, git_branch):
+    """Show a fancy animated startup sequence."""
+    # Banner with color fade
+    lines = BANNER.strip().split("\n")
+    colors = ["bold blue", "bold cyan", "bold green", "bold cyan", "bold blue", "bold magenta"]
+    for i, line in enumerate(lines):
+        console.print(line, style=colors[i % len(colors)])
+        time.sleep(0.05)
+    
+    # Tagline typewriter
+    console.print()
+    _typewriter(f"        {TAGLINE}", style="bold white", delay=0.04)
+    console.print()
+    
+    # Info panel with loading dots
+    steps = [
+        ("Scanning workspace", f"{path}"),
+        ("Detecting project", f"{project_name}"),
+        ("Checking git", f"{git_branch}"),
+        ("Loading memory", ".agent_memory.md"),
+        ("Initializing tools", "22 tools ready"),
+    ]
+    
+    for label, value in steps:
+        console.print(f"  [dim]●[/dim] [bold white]{label}...[/bold white] [green]{value}[/green]")
+        time.sleep(0.12)
+    
+    console.print()
+    console.print(Rule(style="cyan"))
+    
+    # Random greeting
+    greeting = random.choice(GREETINGS)
+    tip = random.choice(TIPS)
+    console.print(f"\n  [bold white]{greeting}[/bold white]")
+    console.print(f"  [dim]{tip}[/dim]\n")
+    console.print(Rule(style="cyan"))
+    console.print()
+
 def _git_cmd(path, cmd):
     """Run a git command and return output."""
     try:
@@ -105,15 +194,8 @@ def main():
     # Check git status
     git_branch = _git_cmd(path, "branch --show-current") or "N/A"
     
-    # Startup
-    console.print(f"[bold cyan]{BANNER}[/bold cyan]")
-    console.print(Rule(style="cyan"))
-    console.print(f"  [bold white]Workspace:[/bold white]  [green]{path}[/green]")
-    console.print(f"  [bold white]Project:[/bold white]    [green]{project_name}[/green]")
-    console.print(f"  [bold white]Git:[/bold white]        [green]{git_branch}[/green]")
-    console.print(f"  [bold white]Commands:[/bold white]   [dim]Type /help for all commands[/dim]")
-    console.print(Rule(style="cyan"))
-    console.print()
+    # Animated Startup
+    _animated_startup(path, project_name, git_branch)
 
     # Create the prompt session with autocomplete
     session = PromptSession(
@@ -138,18 +220,20 @@ def main():
             continue
             
         if cmd in ["exit", "quit"]:
-            console.print("[bold red]✗ Goodbye![/bold red]")
+            # Fun goodbye animation
+            goodbyes = ["See you next deploy! 🚀", "Happy coding! ✨", "Until next time, captain. 🫡", "May your builds always pass. 💚"]
+            console.print(f"\n  [bold cyan]{random.choice(goodbyes)}[/bold cyan]\n")
             break
         
         # ── Slash Commands ──
         if cmd == "/help":
-            console.print(Panel(Markdown(HELP_TEXT), title="[bold cyan]Help", border_style="cyan"))
+            console.print(Panel(Markdown(HELP_TEXT), title="[bold cyan]⌘ Help", border_style="cyan"))
             continue
         
         if cmd == "/clear":
             messages = init_messages(path)
             turn_count = 0
-            console.print("[bold green]✓ Context cleared.[/bold green]\n")
+            console.print("[bold green]✓ Context cleared. Fresh start![/bold green]\n")
             continue
         
         if cmd == "/compact":
@@ -159,17 +243,17 @@ def main():
             messages.clear()
             messages.extend(pruned)
             after = _estimate_tokens(messages)
-            console.print(f"[bold green]✓ Compacted: {before} → {after} tokens[/bold green]\n")
+            console.print(f"[bold green]✓ Compacted: {before} → {after} tokens (freed ~{before - after})[/bold green]\n")
             continue
             
         if cmd == "/status":
-            table = Table(title="Session Status", box=box.ROUNDED, border_style="cyan")
+            table = Table(title="⚡ Session Status", box=box.ROUNDED, border_style="cyan")
             table.add_column("Metric", style="bold white")
             table.add_column("Value", style="green")
-            table.add_row("Turns", str(turn_count))
+            table.add_row("Turns Completed", str(turn_count))
             table.add_row("Messages in Context", str(len(messages)))
-            table.add_row("Context Tokens (~)", str(_estimate_tokens(messages)))
-            table.add_row("Total Tokens Used (~)", str(total_tokens_used))
+            table.add_row("Context Tokens (~)", f"{_estimate_tokens(messages):,}")
+            table.add_row("Total Tokens Used (~)", f"{total_tokens_used:,}")
             table.add_row("Git Branch", git_branch)
             table.add_row("Workspace", path)
             console.print(table)
@@ -185,7 +269,7 @@ def main():
             output = _git_cmd(path, "diff --stat")
             if not output or "fatal" in output:
                 output = "No uncommitted changes."
-            console.print(Panel(output, title="[bold yellow]Git Diff", border_style="yellow"))
+            console.print(Panel(output, title="[bold yellow]📝 Git Diff", border_style="yellow"))
             continue
         
         if cmd == "/commit":
@@ -197,14 +281,17 @@ def main():
         if cmd.startswith("/git "):
             git_subcmd = instruction.strip()[5:]
             output = _git_cmd(path, git_subcmd)
-            console.print(Panel(output, title=f"[bold yellow]git {git_subcmd}", border_style="yellow"))
+            console.print(Panel(output, title=f"[bold yellow]📌 git {git_subcmd}", border_style="yellow"))
             continue
         
         # ── Normal Agent Turn ──
         turn_count += 1
         console.print()
+        
+        # Animated turn header
+        verb = random.choice(THINKING_VERBS)
         console.print(Rule(f"[bold white] Turn {turn_count} [/bold white]", style="dim"))
-        console.print()
+        console.print(f"  [dim italic]{verb}...[/dim italic]\n")
 
         output = run_turn(messages, instruction)
         total_tokens_used += _estimate_tokens(messages)
@@ -213,6 +300,7 @@ def main():
         console.print(Panel(
             Markdown(output),
             title="[bold blue]◆ Agent Response",
+            subtitle=f"[dim]turn {turn_count} • ~{_estimate_tokens(messages):,} tokens[/dim]",
             border_style="blue",
             box=box.ROUNDED,
             padding=(1, 2)
