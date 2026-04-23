@@ -1,23 +1,40 @@
-from core.agent import run
-from utils.files import write_file
+from core.agent import init_messages, run_turn
 import os
 from dotenv import load_dotenv
+
 load_dotenv()
 
+
 def main():
-    file_path = os.getenv("FOLDER_PATH")
-    inst = input("What do you want to change?\n")
+    path = os.getenv("FOLDER_PATH")
 
-    mode, output, final_path = run(file_path, inst)
-    print(f"\n[MODE: {mode.upper()}]")
-    print(f"[FILE: {final_path}]\n")
-    print(output)
+    if not path:
+        print("FOLDER_PATH not set in .env")
+        return
 
-    if mode in ["edit", "debug"]:
-        save = input("\nSave changes? (y/n): ")
-        if save.lower() == "y":
-            write_file(final_path, output)
-            print("Saved.")
+    messages = init_messages(path)
+    
+    print(f"Agent initialized in {path}. Type 'exit' or 'quit' to close.")
+
+    while True:
+        try:
+            instruction = input("\nWhat do you want to change?\n> ")
+        except (KeyboardInterrupt, EOFError):
+            print("\nExiting...")
+            break
+            
+        if not instruction.strip():
+            continue
+            
+        if instruction.strip().lower() in ["exit", "quit"]:
+            print("Exiting...")
+            break
+
+        print("\n[AGENT IS THINKING AND ACTING...]\n")
+        output = run_turn(messages, instruction)
+
+        print(f"\n[AGENT FINISHED]\n{output}")
+
 
 if __name__ == "__main__":
     main()
