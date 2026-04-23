@@ -482,16 +482,34 @@ def ask_human_tool(question: str) -> str:
         return f"Error getting user input: {e}"
 
 def git_command_tool(command: str) -> str:
-    """Run a git command."""
+    """Run a git command with approval for write operations."""
+    from utils.ui import console
     cwd = os.getenv("FOLDER_PATH", ".")
-    # Block dangerous git operations
     cmd_lower = command.strip().lower()
+    
+    # Block dangerous git operations entirely
     blocked = ['push --force', 'reset --hard', 'clean -fd', 'branch -D']
     if any(b in cmd_lower for b in blocked):
-        from utils.ui import console
         console.print(f"\n  [bold red]⚠  Dangerous git command blocked: git {command}[/bold red]")
         console.print(f"  [dim]Use the terminal directly if you really need this.[/dim]")
         return "Blocked: This git command is destructive and requires manual execution."
+    
+    # Operations that need user approval
+    needs_approval = ['commit', 'push', 'add', 'merge', 'rebase', 'checkout -b', 'tag']
+    if any(op in cmd_lower for op in needs_approval):
+        console.print(f"\n  [bold yellow]📌 Git operation requires approval[/bold yellow]")
+        console.print(f"  [dim]$[/dim] [bold white]git {command}[/bold white]")
+        try:
+            from prompt_toolkit import prompt as pt_prompt
+            answer = pt_prompt("  Allow? (y/n): ").strip().lower()
+            if answer not in ('y', 'yes'):
+                console.print("  [bold red]✗ Rejected[/bold red]")
+                return "Git command rejected by user."
+            console.print("  [bold green]✓ Approved[/bold green]")
+        except (KeyboardInterrupt, EOFError):
+            console.print("  [bold red]✗ Rejected[/bold red]")
+            return "Git command rejected by user."
+    
     try:
         result = subprocess.run(
             f"git {command}", shell=True, cwd=cwd,
@@ -501,6 +519,55 @@ def git_command_tool(command: str) -> str:
         return output or f"git {command} executed successfully."
     except Exception as e:
         return f"Git error: {e}"
+
+def codebase_search_tool(query: str, regex: str = None, directory: str = None) -> str:
+    """Combined semantic + regex codebase search."""
+    results = []
+    base_dir = get_base_dir(directory or "")
+    
+    # Part 1: Regex search (if pattern provided)
+    if regex:
+        regex_results = grep_tool(base_dir, regex)
+        if regex_results and "Error" not in regex_results:
+            results.append("═══ Regex Matches ═══\n")
+            results.append(regex_results)
+            results.append("")
+    
+    # Part 2: Semantic search (always)
+    try:
+        from core.memory import semantic_search, collection
+        if collection.count() > 0:
+            semantic_results = semantic_search(query, n_results=5)
+            if semantic_results and "empty" not in semantic_results.lower():
+                results.append("═══ Semantic Matches (by meaning) ═══\n")
+                results.append(semantic_results)
+        else:
+            results.append("[Semantic index is empty. Run index_codebase first for semantic results.]")
+    except Exception as e:
+        results.append(f"[Semantic search unavailable: {e}]")
+    
+    # Part 3: Filename search (always — find files matching the query words)
+    try:
+        query_words = query.lower().split()
+        matching_files = []
+        for root, dirs, files in os.walk(base_dir):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', '__pycache__', '.venv', 'venv')]
+            for f in files:
+                fname_lower = f.lower()
+                if any(w in fname_lower for w in query_words):
+                    rel_path = os.path.relpath(os.path.join(root, f), base_dir)
+                    matching_files.append(rel_path)
+        if matching_files:
+            results.append("\n═══ Matching Filenames ═══\n")
+            for mf in matching_files[:10]:
+                results.append(f"  📄 {mf}")
+    except Exception:
+        pass
+    
+    if not results:
+        return f"No results found for '{query}'" + (f" with regex '{regex}'" if regex else "")
+    
+    return "\n".join(results)
 
 def batch_edit_files_tool(edits: list) -> str:
     """Edit multiple files in a single tool call."""
@@ -982,6 +1049,31 @@ TOOLS_SCHEMA = [
                 "required": ["edits"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "codebase_search",
+            "description": "Search the codebase using BOTH semantic similarity AND regex. Combines vector-based search (finds code by meaning), regex grep (finds exact patterns), and filename matching. Best tool for finding specific code, functions, or patterns.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language description of what you're looking for (e.g., 'database connection setup', 'authentication logic')."
+                    },
+                    "regex": {
+                        "type": "string",
+                        "description": "Optional. A regex pattern to search for exact matches (e.g., 'def train_model', 'import torch')."
+                    },
+                    "directory": {
+                        "type": "string",
+                        "description": "Optional. Subdirectory to limit the search to."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
     }
 ]
 
@@ -995,7 +1087,7 @@ def execute_tool(tool_name: str, args: dict) -> str:
         'read_url': '🌐', 'run_background_command': '⚡', 'read_terminal_output': '📋',
         'get_file_symbols': '🔬', 'ask_human': '💬', 'semantic_replace': '🔧',
         'index_codebase': '📇', 'semantic_search': '🧠', 'arxiv_search': '📚',
-        'git_command': '📌', 'batch_edit_files': '📦',
+        'git_command': '📌', 'batch_edit_files': '📦', 'codebase_search': '🔮',
     }
     icon = TOOL_ICONS.get(tool_name, '🔧')
     
@@ -1050,5 +1142,7 @@ def execute_tool(tool_name: str, args: dict) -> str:
         return git_command_tool(args.get("command", ""))
     elif tool_name == "batch_edit_files":
         return batch_edit_files_tool(args.get("edits", []))
+    elif tool_name == "codebase_search":
+        return codebase_search_tool(args.get("query", ""), args.get("regex"), args.get("directory"))
     else:
         return f"Error: Unknown tool {tool_name}"
