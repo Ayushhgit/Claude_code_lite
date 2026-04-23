@@ -14,7 +14,11 @@ STRICT RULES:
 - DO NOT wrap code in any formatting
 - Output must be directly executable
 
-If you include anything other than raw code, the response is invalid.
+If you include anything other than raw code in your final response, the response is invalid.
+
+You have access to tools (e.g. cat, grep) to explore the codebase. 
+Feel free to use them to gather context before writing code!
+Once you have enough context, your final message must contain ONLY the raw updated code.
 """
         },
         {
