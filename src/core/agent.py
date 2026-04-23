@@ -42,50 +42,67 @@ def _safe_parse_json(raw: str) -> dict:
     return json.loads(raw)
 
 def call_llm_with_tools(messages):
-    retries = 0
+    bad_retries = 0
+    rate_retries = 0
+    retry_msg_count = 0  # Track how many error-correction messages we injected
+    
     while True:
         try:
             message = generate(messages, tools=TOOLS_SCHEMA)
-            retries = 0 # reset retries on success
+            # Success! Clean up any retry messages we injected
+            if retry_msg_count > 0:
+                for _ in range(retry_msg_count):
+                    if messages and messages[-1].get("role") == "user" and "tool call failed" in messages[-1].get("content", "").lower():
+                        messages.pop()
+                retry_msg_count = 0
+            bad_retries = 0
         except groq.RateLimitError as e:
-            wait_time = min(2 ** retries * 5, 60)  # 5s, 10s, 20s, 40s, 60s
-            console.print(f"  [bold yellow] Rate limited by Groq. Waiting {wait_time}s before retrying...[/bold yellow]")
+            wait_time = min(2 ** rate_retries * 5, 60)
+            console.print(f"  [bold yellow]⏳ Rate limited. Waiting {wait_time}s (context preserved)...[/bold yellow]")
             time.sleep(wait_time)
-            retries += 1
-            if retries > 5:
+            rate_retries += 1
+            if rate_retries > 5:
                 return "Error: Repeatedly rate limited by Groq. Please wait a minute and try again."
             continue
         except groq.BadRequestError as e:
             error_msg = str(e)
-            retries += 1
+            bad_retries += 1
             
-            if retries >= 3:
-                # Last resort: try with NO tools (text-only response)
-                console.print(f"  [bold yellow]⚠ Tool calls keep failing. Falling back to text-only response...[/bold yellow]")
+            # Clean up any previous retry messages before adding new ones
+            while retry_msg_count > 0 and messages and messages[-1].get("role") == "user" and "tool call failed" in messages[-1].get("content", "").lower():
+                messages.pop()
+                retry_msg_count -= 1
+            
+            if bad_retries >= 3:
+                # Last resort: text-only (NO tools)
+                console.print(f"  [bold yellow]⚠ Falling back to text-only response (context preserved)...[/bold yellow]")
                 try:
                     message = generate(messages, tools=None)
-                    return message.content.strip() if message.content else "Error: Agent could not generate a response."
+                    result = message.content.strip() if message.content else "Error: Agent could not generate a response."
+                    # Preserve context by appending the response
+                    messages.append({"role": "assistant", "content": result})
+                    return result
                 except Exception:
                     return "Error: LLM repeatedly failed. Please try a simpler request."
             
-            if retries >= 2:
-                # Fallback: use only core tools that small models handle well
-                console.print(f"  [bold yellow]⚠ Retrying with reduced tool set for stability...[/bold yellow]")
+            if bad_retries >= 2:
+                # Fallback: core tools only
+                console.print(f"  [bold yellow]⚠ Retrying with reduced tool set (context preserved)...[/bold yellow]")
                 from core.tools import CORE_TOOLS_SCHEMA
                 try:
                     message = generate(messages, tools=CORE_TOOLS_SCHEMA)
-                    retries = 0
+                    bad_retries = 0
+                    # Fall through to tool processing below
                 except groq.BadRequestError:
                     console.print(f"  [bold red][LLM Error]: {error_msg[:100]}...[/bold red]")
                     continue
             else:
-                console.print(f"  [bold red][LLM Error caught, retrying]: {error_msg[:80]}...[/bold red]")
-                if messages and messages[-1].get("role") == "user" and "Your last tool call failed" in messages[-1].get("content", ""):
-                    messages.pop()
+                console.print(f"  [bold red][LLM Error, retrying]: {error_msg[:80]}...[/bold red]")
                 messages.append({
                     "role": "user",
                     "content": f"Your last tool call failed validation. Use ONLY the exact parameter names from the tool schema. Do NOT add extra parameters. Error: {error_msg[:200]}"
                 })
+                retry_msg_count += 1
                 continue
 
         if getattr(message, "tool_calls", None):
