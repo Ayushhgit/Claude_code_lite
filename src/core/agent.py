@@ -41,14 +41,104 @@ def _safe_parse_json(raw: str) -> dict:
     # Give up, raise original error
     return json.loads(raw)
 
+def _select_tools_for_intent(messages):
+    """Dynamically select relevant tools based on the user's latest message.
+    
+    Small models fail with 24+ tools. This analyzes intent keywords and
+    returns only the 8-12 tools relevant to the current task, keeping
+    the CORE set always available.
+    """
+    from core.tools import TOOLS_SCHEMA, CORE_TOOLS_SCHEMA
+    
+    # Get the latest user message
+    user_msg = ""
+    for msg in reversed(messages):
+        if msg.get("role") == "user" and not msg.get("content", "").startswith("["):
+            user_msg = msg.get("content", "").lower()
+            break
+    
+    # Always start with core tools (cat, ls, edit_file, run_command, grep, 
+    # get_repo_map, replace_in_file, ask_human, codebase_search, git_command)
+    core_names = {t["function"]["name"] for t in CORE_TOOLS_SCHEMA}
+    
+    # Build a keyword → tool name mapping for advanced tools
+    INTENT_MAP = {
+        # Git operations
+        "commit":     ["git_command"],
+        "push":       ["git_command"],
+        "branch":     ["git_command"],
+        "merge":      ["git_command"],
+        "git":        ["git_command"],
+        # Search & discovery
+        "search":     ["codebase_search", "semantic_search", "websearch"],
+        "find":       ["codebase_search", "semantic_search", "grep"],
+        "where":      ["codebase_search", "grep"],
+        # ML & research
+        "train":      ["run_command", "arxiv_search"],
+        "model":      ["run_command", "arxiv_search"],
+        "accuracy":   ["run_command", "arxiv_search"],
+        "paper":      ["arxiv_search"],
+        "arxiv":      ["arxiv_search"],
+        "research":   ["arxiv_search", "websearch"],
+        # Web
+        "web":        ["websearch", "read_url"],
+        "url":        ["read_url"],
+        "http":       ["read_url"],
+        "documentation": ["websearch", "read_url"],
+        # File operations
+        "delete":     ["delete_file"],
+        "remove":     ["delete_file"],
+        "create":     ["edit_file", "batch_edit_files"],
+        "scaffold":   ["batch_edit_files"],
+        "multiple files": ["batch_edit_files"],
+        # Code understanding
+        "symbol":     ["get_file_symbols"],
+        "class":      ["get_file_symbols"],
+        "function":   ["get_file_symbols", "codebase_search"],
+        "index":      ["index_codebase", "semantic_search"],
+        # Advanced editing
+        "diff":       ["apply_diff"],
+        "replace":    ["replace_in_file", "semantic_replace"],
+        "refactor":   ["replace_in_file", "semantic_replace", "apply_diff"],
+        # Background processes
+        "server":     ["run_background_command", "read_terminal_output"],
+        "background": ["run_background_command", "read_terminal_output"],
+        "long":       ["run_background_command"],
+    }
+    
+    # Collect extra tools based on keywords
+    extra_names = set()
+    for keyword, tools in INTENT_MAP.items():
+        if keyword in user_msg:
+            extra_names.update(tools)
+    
+    # Always include some extras for general use
+    extra_names.update(["delete_file", "get_repo_map"])
+    
+    # Build the final schema: core + intent-matched tools
+    selected_names = core_names | extra_names
+    selected = [t for t in TOOLS_SCHEMA if t["function"]["name"] in selected_names]
+    
+    # If nothing matched, fall back to core
+    if not selected:
+        return CORE_TOOLS_SCHEMA
+    
+    return selected
+
 def call_llm_with_tools(messages):
     bad_retries = 0
     rate_retries = 0
     retry_msg_count = 0  # Track how many error-correction messages we injected
     
+    # Dynamic tool selection based on intent
+    active_tools = _select_tools_for_intent(messages)
+    tool_count = len(active_tools)
+    tool_names = [t["function"]["name"] for t in active_tools]
+    console.print(f"  [dim]🔧 {tool_count} tools loaded: {', '.join(tool_names[:6])}{'...' if tool_count > 6 else ''}[/dim]")
+    
     while True:
         try:
-            message = generate(messages, tools=TOOLS_SCHEMA)
+            message = generate(messages, tools=active_tools)
             # Success! Clean up any retry messages we injected
             if retry_msg_count > 0:
                 for _ in range(retry_msg_count):
