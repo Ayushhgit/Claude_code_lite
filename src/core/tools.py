@@ -43,7 +43,8 @@ def grep_tool(directory: str, pattern: str) -> str:
 
     for root, _, files in os.walk(directory):
         for file in files:
-            if not file.endswith(".py"): # Limit to python files for now
+            allowed_exts = (".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".json")
+            if not file.endswith(allowed_exts):
                 continue
             
             filepath = os.path.join(root, file)
@@ -86,7 +87,15 @@ def edit_file_tool(path: str, content: str) -> str:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
-        return f"Successfully updated {path}"
+            
+        # Re-index the file in the background so memory stays fresh
+        try:
+            from core.memory import index_file
+            index_file(path, content)
+        except Exception as mem_err:
+            print(f"  [Memory Error]: Failed to update index for {path}: {mem_err}")
+            
+        return f"Successfully updated {path} and updated vector index."
     except Exception as e:
         return f"Error writing to {path}: {e}"
 
@@ -99,11 +108,38 @@ def delete_file_tool(path: str) -> str:
     try:
         if os.path.exists(path):
             os.remove(path)
+            # Remove from index
+            try:
+                from core.memory import collection
+                collection.delete(where={"filepath": path})
+            except Exception:
+                pass
             return f"Successfully deleted {path}"
         else:
             return f"Error: File {path} does not exist."
     except Exception as e:
         return f"Error deleting {path}: {e}"
+
+def get_repo_map_tool(directory: str) -> str:
+    """Returns a tree structure of the repository to understand the whole codebase."""
+    directory = get_base_dir(directory)
+    if not os.path.exists(directory):
+        return f"Error: Directory {directory} does not exist."
+    
+    tree_str = f"Repository Map for {directory}:\n"
+    for root, dirs, files in os.walk(directory):
+        # Skip hidden directories like .git or .kinda_claude
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        
+        level = root.replace(directory, '').count(os.sep)
+        indent = ' ' * 4 * (level)
+        tree_str += f"{indent}{os.path.basename(root)}/\n"
+        subindent = ' ' * 4 * (level + 1)
+        for f in files:
+            if not f.startswith('.'):
+                tree_str += f"{subindent}{f}\n"
+                
+    return tree_str
 
 TOOLS_SCHEMA = [
     {
@@ -127,7 +163,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "grep",
-            "description": "Search for a regular expression pattern across all python files in a directory.",
+            "description": "Search for a regular expression pattern across all Python, JS, HTML, and CSS files in a directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -155,6 +191,40 @@ TOOLS_SCHEMA = [
                     "directory": {
                         "type": "string",
                         "description": "The directory to list."
+                    }
+                },
+                "required": ["directory"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "semantic_search",
+            "description": "Search the codebase index for code related to a specific concept or logic.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The natural language query to search for (e.g. 'user authentication logic' or 'database connection setup')."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "index_codebase",
+            "description": "Scans and indexes all Python, JS, HTML, and CSS files in the given directory into the Vector Database. You MUST run this once before semantic_search works.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {
+                        "type": "string",
+                        "description": "The directory to index."
                     }
                 },
                 "required": ["directory"]
@@ -198,6 +268,23 @@ TOOLS_SCHEMA = [
                 "required": ["path"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_repo_map",
+            "description": "Get a structural tree map of the entire repository. Use this to understand the global structure, find out what folders exist, and see all files at a glance.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {
+                        "type": "string",
+                        "description": "The root directory to map."
+                    }
+                },
+                "required": ["directory"]
+            }
+        }
     }
 ]
 
@@ -209,6 +296,15 @@ def execute_tool(tool_name: str, args: dict) -> str:
         return grep_tool(args.get("directory", ""), args.get("pattern", ""))
     elif tool_name == "ls":
         return ls_tool(args.get("directory", ""))
+    elif tool_name == "get_repo_map":
+        return get_repo_map_tool(args.get("directory", ""))
+    elif tool_name == "semantic_search":
+        from core.memory import semantic_search
+        return semantic_search(args.get("query", ""))
+    elif tool_name == "index_codebase":
+        from core.memory import index_codebase
+        directory = get_base_dir(args.get("directory", ""))
+        return index_codebase(directory)
     elif tool_name == "edit_file":
         return edit_file_tool(args.get("path", ""), args.get("content", ""))
     elif tool_name == "delete_file":
