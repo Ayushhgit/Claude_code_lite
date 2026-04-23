@@ -1,9 +1,15 @@
 import os
 import re
 import subprocess
+import uuid
+import ast
+import difflib
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Global state for background processes
+BACKGROUND_PROCESSES = {}
 
 def get_base_dir(directory: str) -> str:
     if not directory or directory == "." or directory == "./":
@@ -277,6 +283,131 @@ def websearch_tool(query: str) -> str:
     except Exception as e:
         return f"Error performing web search: {e}"
 
+def read_url_tool(url: str) -> str:
+    """Fetch and extract text from a webpage."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        for script in soup(["script", "style"]):
+            script.extract()
+        text = soup.get_text(separator='\n', strip=True)
+        return text[:15000]
+    except ImportError:
+        return "Error: requests and beautifulsoup4 packages are required."
+    except Exception as e:
+        return f"Error reading URL: {e}"
+
+def run_background_command_tool(command: str) -> str:
+    """Start a shell command in the background."""
+    cwd = os.getenv("FOLDER_PATH", ".")
+    try:
+        job_id = str(uuid.uuid4())[:8]
+        out_file = os.path.join(cwd, f".agent_job_{job_id}.log")
+        f = open(out_file, "w", encoding="utf-8")
+        process = subprocess.Popen(command, shell=True, cwd=cwd, stdout=f, stderr=subprocess.STDOUT, text=True)
+        BACKGROUND_PROCESSES[job_id] = {"process": process, "out_file": out_file, "file_obj": f, "command": command}
+        return f"Started background process '{command}' with Job ID: {job_id}. Output is being logged. Use read_terminal_output to check its status."
+    except Exception as e:
+        return f"Error starting background command: {e}"
+
+def read_terminal_output_tool(job_id: str) -> str:
+    """Check the status and output of a background job."""
+    if job_id not in BACKGROUND_PROCESSES:
+        return f"Error: No active background job found with ID {job_id}."
+    job = BACKGROUND_PROCESSES[job_id]
+    process = job["process"]
+    out_file = job["out_file"]
+    status = process.poll()
+    status_str = "RUNNING" if status is None else f"FINISHED (Exit code: {status})"
+    try:
+        with open(out_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        output = "".join(lines[-100:])
+        return f"Job {job_id} ({job['command']}) - Status: {status_str}\n\nLast 100 lines of output:\n{output}"
+    except Exception as e:
+        return f"Error reading output: {e}"
+
+def get_file_symbols_tool(path: str) -> str:
+    """Parse a python file and return its structure."""
+    if not os.path.isabs(path):
+        folder = os.getenv("FOLDER_PATH", ".")
+        path = os.path.join(folder, path)
+    if not os.path.exists(path):
+        return f"Error: File {path} does not exist."
+    if not path.endswith('.py'):
+        return "Error: get_file_symbols currently only supports Python (.py) files."
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        tree = ast.parse(content)
+        symbols = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                symbols.append(f"class {node.name}:")
+            elif isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+                args = [a.arg for a in node.args.args]
+                symbols.append(f"  def {node.name}({', '.join(args)}):")
+        if not symbols:
+            return "No classes or functions found."
+        return "\n".join(symbols)
+    except Exception as e:
+        return f"Error parsing symbols: {e}"
+
+def ask_human_tool(question: str) -> str:
+    """Pause execution and ask the human user a question."""
+    print(f"\n[AGENT ASKS THE USER]: {question}")
+    try:
+        answer = input("> ")
+        return f"User replied: {answer}"
+    except Exception as e:
+        return f"Error getting user input: {e}"
+
+def semantic_replace_tool(path: str, target: str, replacement: str) -> str:
+    """Replace text using fuzzy matching if exact match fails."""
+    exact_res = replace_in_file_tool(path, target, replacement)
+    if "Error: Target content not found" not in exact_res:
+        return exact_res
+        
+    if not os.path.isabs(path):
+        folder = os.getenv("FOLDER_PATH", ".")
+        path = os.path.join(folder, path)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        target_lines = target.strip().split('\n')
+        content_lines = content.split('\n')
+        best_ratio = 0
+        best_idx = -1
+        target_len = len(target_lines)
+        if target_len == 0 or len(content_lines) < target_len:
+            return "Error: Target is empty or file is smaller than target."
+            
+        for i in range(len(content_lines) - target_len + 1):
+            window = "\n".join(content_lines[i:i+target_len])
+            ratio = difflib.SequenceMatcher(None, target.strip(), window).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_idx = i
+                
+        if best_ratio > 0.85:
+            matched_text = "\n".join(content_lines[best_idx:best_idx+target_len])
+            new_content = content.replace(matched_text, replacement)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            try:
+                from core.memory import index_file
+                index_file(path, new_content)
+            except:
+                pass
+            return f"Exact match failed. Performed fuzzy replacement (Confidence: {best_ratio:.2f}) in {path}."
+        else:
+            return f"Error: Fuzzy match failed (Best confidence: {best_ratio:.2f} < 0.85). Please review your target string."
+    except Exception as e:
+        return f"Error in semantic replace: {e}"
+
 TOOLS_SCHEMA = [
     {
         "type": "function",
@@ -523,6 +654,116 @@ TOOLS_SCHEMA = [
                 "required": ["query"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_url",
+            "description": "Fetch and extract clean text from any URL (e.g., to read documentation pages).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to read."
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_background_command",
+            "description": "Start a long-running shell command in the background (like starting a dev server). Returns a Job ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to run in the background."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_terminal_output",
+            "description": "Read the last 100 lines of output from a background job.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "job_id": {
+                        "type": "string",
+                        "description": "The ID of the background job."
+                    }
+                },
+                "required": ["job_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_symbols",
+            "description": "Parse a Python file and return a skeleton of all classes and functions without their bodies. Extremely token-efficient for exploring architecture.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The path to the .py file."
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_human",
+            "description": "Pause execution to explicitly ask the human user a question or for clarification.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "The question to ask the user in the terminal."
+                    }
+                },
+                "required": ["question"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "semantic_replace",
+            "description": "Like replace_in_file, but uses fuzzy matching to find the target code if the exact match fails (e.g., if you messed up the indentation).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The path to the file."
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "The block of code you want to replace."
+                    },
+                    "replacement": {
+                        "type": "string",
+                        "description": "The new block of code."
+                    }
+                },
+                "required": ["path", "target", "replacement"]
+            }
+        }
     }
 ]
 
@@ -555,5 +796,17 @@ def execute_tool(tool_name: str, args: dict) -> str:
         return apply_diff_tool(args.get("path", ""), args.get("diffs", []))
     elif tool_name == "websearch":
         return websearch_tool(args.get("query", ""))
+    elif tool_name == "read_url":
+        return read_url_tool(args.get("url", ""))
+    elif tool_name == "run_background_command":
+        return run_background_command_tool(args.get("command", ""))
+    elif tool_name == "read_terminal_output":
+        return read_terminal_output_tool(args.get("job_id", ""))
+    elif tool_name == "get_file_symbols":
+        return get_file_symbols_tool(args.get("path", ""))
+    elif tool_name == "ask_human":
+        return ask_human_tool(args.get("question", ""))
+    elif tool_name == "semantic_replace":
+        return semantic_replace_tool(args.get("path", ""), args.get("target", ""), args.get("replacement", ""))
     else:
         return f"Error: Unknown tool {tool_name}"
