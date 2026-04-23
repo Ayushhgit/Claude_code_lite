@@ -213,7 +213,7 @@ def replace_in_file_tool(path: str, target: str, replacement: str) -> str:
         try:
             from core.memory import index_file
             index_file(path, new_content)
-        except:
+        except Exception:
             pass
             
         return f"Successfully replaced content in {path}."
@@ -254,7 +254,7 @@ def apply_diff_tool(path: str, diffs: list) -> str:
         try:
             from core.memory import index_file
             index_file(path, new_content)
-        except:
+        except Exception:
             pass
             
         return f"Successfully applied {len(diffs)} diff block(s) to {path}."
@@ -401,7 +401,7 @@ def semantic_replace_tool(path: str, target: str, replacement: str) -> str:
             try:
                 from core.memory import index_file
                 index_file(path, new_content)
-            except:
+            except Exception:
                 pass
             return f"Exact match failed. Performed fuzzy replacement (Confidence: {best_ratio:.2f}) in {path}."
         else:

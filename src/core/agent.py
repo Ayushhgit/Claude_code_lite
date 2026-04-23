@@ -1,10 +1,6 @@
 import os
 import json
 
-from utils.files import read_file
-from utils.file_selector import llm_pick_file
-from core.prompt import build_edit_prompt
-from core.router import detect_mode, detect_scope
 from llm.groq_client import generate
 from core.tools import TOOLS_SCHEMA, execute_tool
 from utils.ui import console
@@ -81,7 +77,7 @@ def init_messages(path):
         try:
             with open(memory_path, "r", encoding="utf-8") as f:
                 memory_content = f.read()
-        except:
+        except Exception:
             pass
 
     return [
