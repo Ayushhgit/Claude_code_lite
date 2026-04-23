@@ -1,4 +1,4 @@
-def build_edit_prompt(file_content, instruction):
+def build_edit_prompt(mode, file_content, instruction):
     return [
         {
             "role": "system",
@@ -24,11 +24,14 @@ FILE:
 ----------------
 {file_content}
 ----------------
+MODE: 
+{mode}
 
 INSTRUCTION:
 {instruction}
 
-Return ONLY the updated full file code.
+
+Return ONLY the updated full file code if said in the mode else do as the mode says.
 """
         }
     ]
