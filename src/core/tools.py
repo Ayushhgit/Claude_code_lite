@@ -239,7 +239,8 @@ def _approve_command(command: str) -> bool:
         return False
 
 def run_command_tool(command: str) -> str:
-    """Run a shell command with user approval."""
+    """Run a shell command with user approval and live output."""
+    from utils.ui import console
     if not _approve_command(command):
         return "Command rejected by user."
     
@@ -251,15 +252,28 @@ def run_command_tool(command: str) -> str:
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=120
         )
         output = result.stdout + result.stderr
         if not output.strip():
             output = f"Command '{command}' executed successfully with no output (Exit code {result.returncode})."
-        return output[:8000] # Limit output size to prevent context overflow
+        
+        # Display output to user in a styled box
+        display_output = output.strip()[:2000]  # Show first 2000 chars to user
+        exit_style = "green" if result.returncode == 0 else "red"
+        console.print(f"  [dim]┌─ Output (exit code: [{exit_style}]{result.returncode}[/{exit_style}]) ─[/dim]")
+        for line in display_output.split('\n')[:30]:  # Max 30 lines displayed
+            console.print(f"  [dim]│[/dim] {line}")
+        if len(output.strip()) > 2000 or output.count('\n') > 30:
+            console.print(f"  [dim]│ ... (truncated, full output sent to agent)[/dim]")
+        console.print(f"  [dim]└────[/dim]")
+        
+        return output[:8000]  # Full output to agent for analysis
     except subprocess.TimeoutExpired:
-        return "Error: Command timed out after 60 seconds."
+        console.print(f"  [bold red]  ⏱ Command timed out after 120s[/bold red]")
+        return "Error: Command timed out after 120 seconds."
     except Exception as e:
+        console.print(f"  [bold red]  ✗ {e}[/bold red]")
         return f"Error executing command: {e}"
 
 def replace_in_file_tool(path: str, target: str, replacement: str) -> str:
