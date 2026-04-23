@@ -97,6 +97,25 @@ def ls_tool(directory: str) -> str:
     except Exception as e:
         return f"Error listing directory: {e}"
 
+def _log_edit_to_memory(filepath: str, action: str):
+    """Auto-append a log entry to .agent_memory.md after every edit."""
+    import datetime
+    folder = os.getenv("FOLDER_PATH", ".")
+    memory_path = os.path.join(folder, ".agent_memory.md")
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    entry = f"\n- [{timestamp}] {action}: `{os.path.basename(filepath)}`\n"
+    try:
+        existing = ""
+        if os.path.exists(memory_path):
+            with open(memory_path, "r", encoding="utf-8") as f:
+                existing = f.read()
+        # Only append if not already logged (avoid duplicates in same second)
+        if entry.strip() not in existing:
+            with open(memory_path, "a", encoding="utf-8") as f:
+                f.write(entry)
+    except Exception:
+        pass
+
 def edit_file_tool(path: str, content: str) -> str:
     """Write content to a file."""
     if not os.path.isabs(path):
@@ -119,7 +138,8 @@ def edit_file_tool(path: str, content: str) -> str:
             index_file(path, content)
         except Exception as mem_err:
             print(f"  [Memory Error]: Failed to update index for {path}: {mem_err}")
-            
+        
+        _log_edit_to_memory(path, "Created/Updated")
         return f"Successfully updated {path} and updated vector index."
     except Exception as e:
         return f"Error writing to {path}: {e}"
@@ -139,6 +159,7 @@ def delete_file_tool(path: str) -> str:
                 collection.delete(where={"filepath": path})
             except Exception:
                 pass
+            _log_edit_to_memory(path, "Deleted")
             return f"Successfully deleted {path}"
         else:
             return f"Error: File {path} does not exist."
@@ -167,8 +188,60 @@ def get_repo_map_tool(directory: str) -> str:
                 
     return tree_str
 
+# Commands that are always safe (no approval needed)
+SAFE_COMMANDS = [
+    'ls', 'dir', 'cat', 'type', 'echo', 'pwd', 'cd', 'mkdir',
+    'python ', 'python3 ', 'pip install', 'pip list', 'pip --version',
+    'uv run', 'uv pip', 'npm install', 'npm run', 'npx ',
+    'node ', 'python --version', 'node --version', 'npm --version',
+    'git status', 'git log', 'git diff', 'git branch',
+]
+
+# Patterns that are BLOCKED unless user explicitly approves
+DANGEROUS_PATTERNS = [
+    'rm -rf', 'rmdir /s', 'del /s', 'del /f', 'format ', 'fdisk',
+    'shutdown', 'reboot', ':(){', 'mkfs', 'dd if=',
+    'chmod 777', 'curl | bash', 'wget | sh', 'sudo ',
+    '> /dev/', 'reg delete', 'reg add',
+]
+
+def _approve_command(command: str) -> bool:
+    """Ask user for approval before running a command."""
+    from utils.ui import console
+    
+    # Check if it's a safe command
+    cmd_lower = command.strip().lower()
+    for safe in SAFE_COMMANDS:
+        if cmd_lower.startswith(safe):
+            return True
+    
+    # Check if it's a dangerous command
+    is_dangerous = any(pattern in cmd_lower for pattern in DANGEROUS_PATTERNS)
+    
+    if is_dangerous:
+        console.print(f"\n  [bold red]⚠  DANGEROUS COMMAND DETECTED[/bold red]")
+    else:
+        console.print(f"\n  [bold yellow]⚡ Command requires approval[/bold yellow]")
+    
+    console.print(f"  [dim]$[/dim] [bold white]{command}[/bold white]")
+    
+    try:
+        answer = console.input("  [bold cyan]Allow? (y/n):[/bold cyan] ").strip().lower()
+        if answer in ('y', 'yes'):
+            console.print("  [bold green]✓ Approved[/bold green]")
+            return True
+        else:
+            console.print("  [bold red]✗ Rejected[/bold red]")
+            return False
+    except (KeyboardInterrupt, EOFError):
+        console.print("  [bold red]✗ Rejected[/bold red]")
+        return False
+
 def run_command_tool(command: str) -> str:
-    """Run a shell command."""
+    """Run a shell command with user approval."""
+    if not _approve_command(command):
+        return "Command rejected by user."
+    
     cwd = os.getenv("FOLDER_PATH", ".")
     try:
         result = subprocess.run(
@@ -215,7 +288,8 @@ def replace_in_file_tool(path: str, target: str, replacement: str) -> str:
             index_file(path, new_content)
         except Exception:
             pass
-            
+        
+        _log_edit_to_memory(path, "Replaced snippet in")
         return f"Successfully replaced content in {path}."
     except Exception as e:
         return f"Error replacing in file: {e}"
@@ -256,7 +330,8 @@ def apply_diff_tool(path: str, diffs: list) -> str:
             index_file(path, new_content)
         except Exception:
             pass
-            
+        
+        _log_edit_to_memory(path, f"Applied {len(diffs)} diff(s) to")
         return f"Successfully applied {len(diffs)} diff block(s) to {path}."
     except Exception as e:
         return f"Error applying diffs: {e}"
@@ -283,6 +358,40 @@ def websearch_tool(query: str) -> str:
     except Exception as e:
         return f"Error performing web search: {e}"
 
+def arxiv_search_tool(query: str, max_results: int = 5) -> str:
+    """Search arXiv for academic papers."""
+    try:
+        import arxiv
+        client = arxiv.Client()
+        search = arxiv.Search(
+            query=query,
+            max_results=max_results,
+            sort_by=arxiv.SortCriterion.Relevance
+        )
+        results = list(client.results(search))
+        
+        if not results:
+            return "No papers found on arXiv for your query."
+        
+        output = f"arXiv Search Results for '{query}':\n\n"
+        for i, paper in enumerate(results):
+            authors = ', '.join(a.name for a in paper.authors[:3])
+            if len(paper.authors) > 3:
+                authors += ' et al.'
+            output += f"{i+1}. {paper.title}\n"
+            output += f"   Authors: {authors}\n"
+            output += f"   Published: {paper.published.strftime('%Y-%m-%d')}\n"
+            output += f"   URL: {paper.entry_id}\n"
+            output += f"   PDF: {paper.pdf_url}\n"
+            summary = paper.summary.replace('\n', ' ')[:300]
+            output += f"   Abstract: {summary}...\n\n"
+        
+        return output
+    except ImportError:
+        return "Error: arxiv package is not installed. Please run 'pip install arxiv'."
+    except Exception as e:
+        return f"Error searching arXiv: {e}"
+
 def read_url_tool(url: str) -> str:
     """Fetch and extract text from a webpage."""
     try:
@@ -301,7 +410,10 @@ def read_url_tool(url: str) -> str:
         return f"Error reading URL: {e}"
 
 def run_background_command_tool(command: str) -> str:
-    """Start a shell command in the background."""
+    """Start a shell command in the background with user approval."""
+    if not _approve_command(command):
+        return "Command rejected by user."
+    
     cwd = os.getenv("FOLDER_PATH", ".")
     try:
         job_id = str(uuid.uuid4())[:8]
@@ -359,12 +471,44 @@ def get_file_symbols_tool(path: str) -> str:
 def ask_human_tool(question: str) -> str:
     """Pause execution and ask the human user a question."""
     from utils.ui import console
-    console.print(f"\n[bold magenta][AGENT ASKS THE USER]: {question}[/bold magenta]")
+    console.print(f"\n  [bold magenta]💬 Agent has a question:[/bold magenta]")
+    console.print(f"  [white]{question}[/white]")
     try:
-        answer = console.input("[bold magenta]>[/bold magenta] ")
+        answer = console.input("  [bold magenta]>[/bold magenta] ")
         return f"User replied: {answer}"
     except Exception as e:
         return f"Error getting user input: {e}"
+
+def git_command_tool(command: str) -> str:
+    """Run a git command."""
+    cwd = os.getenv("FOLDER_PATH", ".")
+    # Block dangerous git operations
+    cmd_lower = command.strip().lower()
+    blocked = ['push --force', 'reset --hard', 'clean -fd', 'branch -D']
+    if any(b in cmd_lower for b in blocked):
+        from utils.ui import console
+        console.print(f"\n  [bold red]⚠  Dangerous git command blocked: git {command}[/bold red]")
+        console.print(f"  [dim]Use the terminal directly if you really need this.[/dim]")
+        return "Blocked: This git command is destructive and requires manual execution."
+    try:
+        result = subprocess.run(
+            f"git {command}", shell=True, cwd=cwd,
+            capture_output=True, text=True, timeout=30
+        )
+        output = (result.stdout + result.stderr).strip()
+        return output or f"git {command} executed successfully."
+    except Exception as e:
+        return f"Git error: {e}"
+
+def batch_edit_files_tool(edits: list) -> str:
+    """Edit multiple files in a single tool call."""
+    results = []
+    for edit in edits:
+        filepath = edit.get("path", "")
+        content = edit.get("content", "")
+        res = edit_file_tool(filepath, content)
+        results.append(f"{filepath}: {res}")
+    return "\n".join(results)
 
 def semantic_replace_tool(path: str, target: str, replacement: str) -> str:
     """Replace text using fuzzy matching if exact match fails."""
@@ -765,12 +909,89 @@ TOOLS_SCHEMA = [
                 "required": ["path", "target", "replacement"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "arxiv_search",
+            "description": "Search arXiv for academic research papers. Returns titles, authors, abstracts, and PDF links. Use this when implementing ML algorithms, looking for state-of-the-art techniques, or referencing research.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query (e.g., 'transformer attention mechanism', 'YOLO object detection')."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Optional. Max number of papers to return (default 5)."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_command",
+            "description": "Run a git command (e.g., 'status', 'add -A', 'commit -m \"msg\"', 'log -5', 'diff'). Dangerous operations like force-push are blocked.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The git subcommand to run (without 'git' prefix)."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "batch_edit_files",
+            "description": "Create or overwrite multiple files in one tool call. Each edit is {path, content}. Use this for scaffolding projects with many files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "edits": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string"},
+                                "content": {"type": "string"}
+                            },
+                            "required": ["path", "content"]
+                        },
+                        "description": "Array of {path, content} objects."
+                    }
+                },
+                "required": ["edits"]
+            }
+        }
     }
 ]
 
 def execute_tool(tool_name: str, args: dict) -> str:
     from utils.ui import console
-    console.print(f"  [bold yellow][Tool Call]:[/bold yellow] {tool_name}({', '.join(f'{k}={str(v)[:30]}...' for k,v in args.items())})")
+    
+    TOOL_ICONS = {
+        'cat': '📄', 'grep': '🔍', 'ls': '📁', 'edit_file': '✏️',
+        'delete_file': '🗑️', 'get_repo_map': '🗺️', 'run_command': '⚡',
+        'replace_in_file': '🔧', 'apply_diff': '🔧', 'websearch': '🌐',
+        'read_url': '🌐', 'run_background_command': '⚡', 'read_terminal_output': '📋',
+        'get_file_symbols': '🔬', 'ask_human': '💬', 'semantic_replace': '🔧',
+        'index_codebase': '📇', 'semantic_search': '🧠', 'arxiv_search': '📚',
+        'git_command': '📌', 'batch_edit_files': '📦',
+    }
+    icon = TOOL_ICONS.get(tool_name, '🔧')
+    
+    # Build a short, readable summary of the args
+    short_args = ', '.join(f'{k}={str(v)[:40]}' for k,v in args.items())
+    console.print(f"  {icon} [bold yellow]{tool_name}[/bold yellow][dim]({short_args})[/dim]")
     if tool_name == "cat":
         return cat_tool(args.get("path", ""), args.get("start_line"), args.get("end_line"))
     elif tool_name == "grep":
@@ -810,5 +1031,11 @@ def execute_tool(tool_name: str, args: dict) -> str:
         return ask_human_tool(args.get("question", ""))
     elif tool_name == "semantic_replace":
         return semantic_replace_tool(args.get("path", ""), args.get("target", ""), args.get("replacement", ""))
+    elif tool_name == "arxiv_search":
+        return arxiv_search_tool(args.get("query", ""), args.get("max_results", 5))
+    elif tool_name == "git_command":
+        return git_command_tool(args.get("command", ""))
+    elif tool_name == "batch_edit_files":
+        return batch_edit_files_tool(args.get("edits", []))
     else:
         return f"Error: Unknown tool {tool_name}"
