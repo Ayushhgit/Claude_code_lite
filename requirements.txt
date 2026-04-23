@@ -5,3 +5,4 @@ sentence-transformers
 duckduckgo-search
 requests
 beautifulsoup4
+rich
