@@ -3,3 +3,5 @@ python-dotenv
 chromadb
 sentence-transformers
 duckduckgo-search
+requests
+beautifulsoup4
