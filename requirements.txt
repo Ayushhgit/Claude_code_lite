@@ -2,3 +2,4 @@ groq
 python-dotenv
 chromadb
 sentence-transformers
+duckduckgo-search

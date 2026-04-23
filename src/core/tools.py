@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,7 +12,7 @@ def get_base_dir(directory: str) -> str:
         return os.getenv("FOLDER_PATH", ".")
     return directory
 
-def cat_tool(path: str) -> str:
+def cat_tool(path: str, start_line: int = 1, end_line: int = None) -> str:
     """Read the contents of a file."""
     # if path is just a filename, assume it's in the target folder
     if not os.path.isabs(path) and not os.path.exists(path):
@@ -25,7 +26,23 @@ def cat_tool(path: str) -> str:
     
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return f.read()
+            lines = f.readlines()
+            
+        total_lines = len(lines)
+        start = max(0, start_line - 1) if start_line else 0
+        end = min(total_lines, end_line) if end_line else total_lines
+        
+        # Enforce max 1000 lines at a time to prevent context overflow
+        if end - start > 1000:
+            end = start + 1000
+            
+        snippet = "".join(lines[start:end])
+        header = f"--- File: {path} (Lines {start+1}-{end} of {total_lines}) ---\n"
+        
+        if end < total_lines:
+            header += "Note: Output truncated to 1000 lines. Use start_line and end_line to view more.\n"
+            
+        return header + snippet
     except Exception as e:
         return f"Error reading {path}: {e}"
 
@@ -41,7 +58,9 @@ def grep_tool(directory: str, pattern: str) -> str:
     except re.error as e:
         return f"Error: Invalid regex pattern: {e}"
 
-    for root, _, files in os.walk(directory):
+    for root, dirs, files in os.walk(directory):
+        # Skip hidden directories and massive build folders
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', 'build', 'dist', '__pycache__', 'coverage', 'out', 'venv', 'env')]
         for file in files:
             allowed_exts = (".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".json")
             if not file.endswith(allowed_exts):
@@ -128,6 +147,7 @@ def get_repo_map_tool(directory: str) -> str:
     
     tree_str = f"Repository Map for {directory}:\n"
     for root, dirs, files in os.walk(directory):
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', 'build', 'dist', '__pycache__', 'coverage', 'out', 'venv', 'env')]
         # Skip hidden directories like .git or .kinda_claude
         dirs[:] = [d for d in dirs if not d.startswith('.')]
         
@@ -141,6 +161,122 @@ def get_repo_map_tool(directory: str) -> str:
                 
     return tree_str
 
+def run_command_tool(command: str) -> str:
+    """Run a shell command."""
+    cwd = os.getenv("FOLDER_PATH", ".")
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        output = result.stdout + result.stderr
+        if not output.strip():
+            output = f"Command '{command}' executed successfully with no output (Exit code {result.returncode})."
+        return output[:8000] # Limit output size to prevent context overflow
+    except subprocess.TimeoutExpired:
+        return "Error: Command timed out after 60 seconds."
+    except Exception as e:
+        return f"Error executing command: {e}"
+
+def replace_in_file_tool(path: str, target: str, replacement: str) -> str:
+    """Replace a specific target string with a replacement string in a file."""
+    if not os.path.isabs(path):
+        folder = os.getenv("FOLDER_PATH", ".")
+        path = os.path.join(folder, path)
+        
+    if not os.path.exists(path):
+        return f"Error: File {path} does not exist."
+        
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        if target not in content:
+            return "Error: Target content not found in file exactly as provided. Please verify spacing and newlines."
+            
+        new_content = content.replace(target, replacement)
+        
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+            
+        # Update index
+        try:
+            from core.memory import index_file
+            index_file(path, new_content)
+        except:
+            pass
+            
+        return f"Successfully replaced content in {path}."
+    except Exception as e:
+        return f"Error replacing in file: {e}"
+
+def apply_diff_tool(path: str, diffs: list) -> str:
+    """Apply multiple search and replace blocks to a file."""
+    if not os.path.isabs(path):
+        folder = os.getenv("FOLDER_PATH", ".")
+        path = os.path.join(folder, path)
+        
+    if not os.path.exists(path):
+        return f"Error: File {path} does not exist."
+        
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        new_content = content
+        
+        # Verify all targets exist first
+        for idx, diff in enumerate(diffs):
+            target = diff.get("search", "")
+            if target not in new_content:
+                return f"Error applying diffs: Target content for block {idx} not found in file exactly as provided. Please verify spacing and newlines."
+                
+        # Apply replacements
+        for diff in diffs:
+            target = diff.get("search", "")
+            replacement = diff.get("replace", "")
+            new_content = new_content.replace(target, replacement)
+        
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+            
+        # Update index
+        try:
+            from core.memory import index_file
+            index_file(path, new_content)
+        except:
+            pass
+            
+        return f"Successfully applied {len(diffs)} diff block(s) to {path}."
+    except Exception as e:
+        return f"Error applying diffs: {e}"
+
+def websearch_tool(query: str) -> str:
+    """Search the web for information."""
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=5))
+            
+        if not results:
+            return "No results found for your query."
+            
+        output = f"Web Search Results for '{query}':\n\n"
+        for i, res in enumerate(results):
+            output += f"{i+1}. {res.get('title', 'No Title')}\n"
+            output += f"   URL: {res.get('href', 'No URL')}\n"
+            output += f"   Snippet: {res.get('body', 'No Snippet')}\n\n"
+            
+        return output
+    except ImportError:
+        return "Error: duckduckgo-search package is not installed. Please run 'pip install duckduckgo-search'."
+    except Exception as e:
+        return f"Error performing web search: {e}"
+
 TOOLS_SCHEMA = [
     {
         "type": "function",
@@ -153,6 +289,14 @@ TOOLS_SCHEMA = [
                     "path": {
                         "type": "string",
                         "description": "The absolute or relative path to the file to read."
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Optional. The line number to start reading from (1-indexed)."
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Optional. The line number to stop reading at (1-indexed)."
                     }
                 },
                 "required": ["path"]
@@ -285,13 +429,107 @@ TOOLS_SCHEMA = [
                 "required": ["directory"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Run a shell command in the workspace directory. Use this to install dependencies, run tests, build projects, or use utility scripts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to execute."
+                    }
+                },
+                "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "replace_in_file",
+            "description": "Replace a specific snippet of text in a file with new text. Use this instead of edit_file for making small to medium edits in large files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The path to the file to modify."
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "The exact string to be replaced. Must match exactly, including indentation and newlines. Include sufficient context (e.g., full lines) to ensure the target is unique in the file."
+                    },
+                    "replacement": {
+                        "type": "string",
+                        "description": "The new string to replace the target with."
+                    }
+                },
+                "required": ["path", "target", "replacement"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "apply_diff",
+            "description": "Apply a set of diff blocks to a file. Useful for making multiple independent edits across a large file simultaneously without rewriting the whole file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "The path to the file to modify."
+                    },
+                    "diffs": {
+                        "type": "array",
+                        "description": "A list of diff blocks containing search and replace strings.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "search": {
+                                    "type": "string",
+                                    "description": "The exact lines to find and replace. Must match exactly, including indentation and newlines. Include sufficient context (e.g., full lines) to ensure the search string is unique in the file."
+                                },
+                                "replace": {
+                                    "type": "string",
+                                    "description": "The new lines to replace them with."
+                                }
+                            },
+                            "required": ["search", "replace"]
+                        }
+                    }
+                },
+                "required": ["path", "diffs"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "websearch",
+            "description": "Search the internet for documentation, updates, latest news, or coding solutions using DuckDuckGo.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
     }
 ]
 
 def execute_tool(tool_name: str, args: dict) -> str:
     print(f"  [Tool Call]: {tool_name}({', '.join(f'{k}={str(v)[:30]}...' for k,v in args.items())})")
     if tool_name == "cat":
-        return cat_tool(args.get("path", ""))
+        return cat_tool(args.get("path", ""), args.get("start_line"), args.get("end_line"))
     elif tool_name == "grep":
         return grep_tool(args.get("directory", ""), args.get("pattern", ""))
     elif tool_name == "ls":
@@ -309,5 +547,13 @@ def execute_tool(tool_name: str, args: dict) -> str:
         return edit_file_tool(args.get("path", ""), args.get("content", ""))
     elif tool_name == "delete_file":
         return delete_file_tool(args.get("path", ""))
+    elif tool_name == "run_command":
+        return run_command_tool(args.get("command", ""))
+    elif tool_name == "replace_in_file":
+        return replace_in_file_tool(args.get("path", ""), args.get("target", ""), args.get("replacement", ""))
+    elif tool_name == "apply_diff":
+        return apply_diff_tool(args.get("path", ""), args.get("diffs", []))
+    elif tool_name == "websearch":
+        return websearch_tool(args.get("query", ""))
     else:
         return f"Error: Unknown tool {tool_name}"

@@ -12,12 +12,21 @@ from core.tools import TOOLS_SCHEMA, execute_tool
 import groq
 
 def call_llm_with_tools(messages):
+    retries = 0
     while True:
         try:
             message = generate(messages, tools=TOOLS_SCHEMA)
+            retries = 0 # reset retries on success
         except groq.BadRequestError as e:
             error_msg = str(e)
             print(f"  [LLM Error caught, asking it to retry]: {error_msg[:100]}...")
+            retries += 1
+            if retries > 3:
+                return "Error: LLM repeatedly failed to generate valid tool calls. Aborting."
+            
+            if messages and messages[-1].get("role") == "user" and "Your last tool call failed" in messages[-1].get("content", ""):
+                messages.pop()
+                
             messages.append({
                 "role": "user",
                 "content": f"Your last tool call failed with a JSON parsing error. Please make sure your tool arguments are valid JSON, properly escape quotes/newlines, and DO NOT try to edit multiple files in one single edit_file call. Error details: {error_msg}"
@@ -59,28 +68,60 @@ def call_llm_with_tools(messages):
 
 
 def init_messages(path):
+    memory_path = os.path.join(path, ".agent_memory.md")
+    memory_content = "No long-term memory recorded yet."
+    if os.path.exists(memory_path):
+        try:
+            with open(memory_path, "r", encoding="utf-8") as f:
+                memory_content = f.read()
+        except:
+            pass
+
     return [
         {
             "role": "system",
-            "content": f"""You are an autonomous AI coding agent. 
+            "content": f"""You are an elite, autonomous AI software engineer, equivalent to a senior developer building end-to-end, production-grade systems.
 Your task is to fulfill the user's instruction.
-You have access to tools to explore the codebase and modify files.
+You have access to tools to explore the codebase, modify files, and run terminal commands.
 The root folder you are working in is: {path}
 
 STRICT RULES TO PREVENT MISTAKES:
 1. ALWAYS use `ls` or `get_repo_map` FIRST to find out what files actually exist before editing.
-2. ALWAYS use `cat` to read the existing file content before calling `edit_file`.
+2. ALWAYS use `cat` to read the existing file content before calling `edit_file` or `replace_in_file`.
 3. NEVER guess filenames. If you are asked to "change all files", you MUST use `ls` to get the list of files first.
-4. If you need to understand the GLOBAL architecture (e.g. "analyze the whole codebase"), use `get_repo_map` to see the entire folder tree! Do NOT use `semantic_search` for a global overview.
-5. If you need to find specific logic (e.g. "where is the math logic"), run `index_codebase` ONCE, then use `semantic_search` to find relevant code snippets via vector embeddings.
-6. NEVER create dummy files, test files, or hallucinated files (e.g. test.py, test2.py) unless the user explicitly tells you to create a new file.
-7. Use `edit_file` to modify or create files. IMPORTANT: You MUST call `edit_file` separately for EACH file you want to edit. Do NOT try to combine multiple files into one `edit_file` call.
-8. Make sure your tool arguments are valid JSON. To insert newlines in the `content` argument, use a standard JSON newline escape (`\\n`). DO NOT double-escape newlines (like `\\\\n`) or quotes (like `\\\\"`, unless they are actual literal strings inside your code), otherwise literal '\\n' and '\\"' characters will be printed into the file!
-9. Use `delete_file` to delete files if requested.
-10. When you are completely finished editing, provide a brief summary of what you did to the user.
+4. If you need to understand the GLOBAL architecture, use `get_repo_map` to see the entire folder tree! Do NOT use `semantic_search` for a global overview.
+5. If you need to find specific logic, run `index_codebase` ONCE, then use `semantic_search` to find relevant code snippets via vector embeddings.
+6. NEVER create dummy files unless the user explicitly tells you to create a new file.
+7. Use `edit_file` to write entire files. For targeted edits in large files, ALWAYS prefer `replace_in_file` (for single edits) or `apply_diff` (for multiple edits) to save token bandwidth and reduce hallucination risks.
+8. Make sure your tool arguments are valid JSON. Escape newlines (`\\n`) and quotes properly.
+9. Use `run_command` to execute tests, linters, scaffolding (e.g., `npm create`), or any terminal utilities. Validating your code via the terminal is mandatory for production-grade output!
+10. Use `websearch` to search the internet for documentation, updates, latest news, or coding solutions when you are unsure or need the latest info.
+11. THINK STEP-BY-STEP. Before making tool calls, always write out a `<thinking>` block to outline your plan, architecture decisions, and tool strategies.
+12. When you are completely finished editing, provide a brief summary of what you did to the user.
+
+PROJECT MEMORY:
+You have a persistent long-term memory file at `.agent_memory.md`. Current contents:
+--------------------------------------------------
+{memory_content}
+--------------------------------------------------
+IMPORTANT: If you learn something new about the architecture, user preferences, or solve a tricky bug, you MUST update `.agent_memory.md` using `edit_file` to ensure you remember it in future sessions!
 """
         }
     ]
+
+def prune_messages(messages):
+    MAX_MESSAGES = 40
+    if len(messages) <= MAX_MESSAGES:
+        return messages
+        
+    system_prompt = messages[0]
+    tail = messages[-20:]
+    
+    # Ensure we don't start the tail with a 'tool' role because its 'assistant' call was truncated
+    while tail and tail[0]["role"] == "tool":
+        tail.pop(0)
+        
+    return [system_prompt] + tail
 
 def run_turn(messages, instruction):
     messages.append({
@@ -95,5 +136,9 @@ def run_turn(messages, instruction):
         "role": "assistant",
         "content": result
     })
+    
+    pruned = prune_messages(messages)
+    messages.clear()
+    messages.extend(pruned)
     
     return result

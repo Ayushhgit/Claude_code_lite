@@ -82,8 +82,9 @@ def index_file(filepath: str, content: str):
     if not chunks:
         return
         
+    mtime = os.path.getmtime(filepath) if os.path.exists(filepath) else 0
+        
     # Delete existing chunks for this file to prevent duplicates
-    # ChromaDB supports deleting by metadata or ID
     try:
         collection.delete(where={"filepath": filepath})
     except Exception:
@@ -93,6 +94,9 @@ def index_file(filepath: str, content: str):
     documents = [chunk["text"] for chunk in chunks]
     metadatas = [chunk["metadata"] for chunk in chunks]
     
+    for meta in metadatas:
+        meta["mtime"] = mtime
+    
     collection.add(
         ids=ids,
         documents=documents,
@@ -100,14 +104,28 @@ def index_file(filepath: str, content: str):
     )
 
 def index_codebase(directory: str):
-    """Walk a directory and index all Python, JS, HTML, and CSS files."""
+    """Walk a directory and incrementally index all supported files."""
     files_indexed = 0
+    files_skipped = 0
     allowed_exts = (".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".json")
-    for root, _, files in os.walk(directory):
+    for root, dirs, files in os.walk(directory):
+        # Skip hidden directories and massive build folders
+        dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', 'build', 'dist', '__pycache__', 'coverage', 'out', 'venv', 'env')]
+        
         for file in files:
             if file.endswith(allowed_exts):
                 filepath = os.path.join(root, file)
                 try:
+                    mtime = os.path.getmtime(filepath)
+                    
+                    # Check if already indexed and up to date
+                    existing = collection.get(where={"filepath": filepath}, limit=1)
+                    if existing and existing.get('metadatas') and len(existing['metadatas']) > 0:
+                        stored_mtime = existing['metadatas'][0].get("mtime", 0)
+                        if stored_mtime >= mtime:
+                            files_skipped += 1
+                            continue
+                            
                     with open(filepath, "r", encoding="utf-8") as f:
                         content = f.read()
                     index_file(filepath, content)
@@ -115,7 +133,7 @@ def index_codebase(directory: str):
                 except Exception as e:
                     print(f"Failed to index {filepath}: {e}")
                     
-    return f"Successfully indexed {files_indexed} files."
+    return f"Successfully indexed {files_indexed} files. Skipped {files_skipped} unchanged files."
 
 def semantic_search(query: str, n_results: int = 3):
     """Search the vector database for relevant code chunks."""
