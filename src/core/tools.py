@@ -575,6 +575,14 @@ TOOLS_SCHEMA = [
                     "end_line": {
                         "type": "integer",
                         "description": "Optional. The line number to stop reading at (1-indexed)."
+                    },
+                    "line_start": {
+                        "type": "integer",
+                        "description": "Alias for start_line."
+                    },
+                    "line_end": {
+                        "type": "integer",
+                        "description": "Alias for end_line."
                     }
                 },
                 "required": ["path"]
@@ -995,7 +1003,10 @@ def execute_tool(tool_name: str, args: dict) -> str:
     short_args = ', '.join(f'{k}={str(v)[:40]}' for k,v in args.items())
     console.print(f"  {icon} [bold yellow]{tool_name}[/bold yellow][dim]({short_args})[/dim]")
     if tool_name == "cat":
-        return cat_tool(args.get("path", ""), args.get("start_line"), args.get("end_line"))
+        # Accept both naming conventions LLMs use
+        start = args.get("start_line") or args.get("line_start")
+        end = args.get("end_line") or args.get("line_end")
+        return cat_tool(args.get("path", ""), start, end)
     elif tool_name == "grep":
         return grep_tool(args.get("directory", ""), args.get("pattern", ""))
     elif tool_name == "ls":
