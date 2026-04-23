@@ -123,12 +123,14 @@ PT_STYLE = PTStyle.from_dict({
     "completion-menu.meta.completion.current":  "bg:#89b4fa #1e1e2e italic",
 })
 
-def _typewriter(text, style="bold cyan", delay=0.02):
-    """Print text with a typewriter animation."""
+def _typewriter(text, delay=0.025):
+    """Print text with a typewriter animation using stdout directly."""
     for char in text:
-        console.print(char, end="", style=style)
+        sys.stdout.write(char)
+        sys.stdout.flush()
         time.sleep(delay)
-    console.print()
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
 def _animated_startup(path, project_name, git_branch):
     """Show a fancy animated startup sequence."""
@@ -137,34 +139,43 @@ def _animated_startup(path, project_name, git_branch):
     colors = ["bold blue", "bold cyan", "bold green", "bold cyan", "bold blue", "bold magenta"]
     for i, line in enumerate(lines):
         console.print(line, style=colors[i % len(colors)])
-        time.sleep(0.05)
+        time.sleep(0.06)
     
     # Tagline typewriter
     console.print()
-    _typewriter(f"        {TAGLINE}", style="bold white", delay=0.04)
+    _typewriter(f"        {TAGLINE}", delay=0.04)
     console.print()
     
-    # Info panel with loading dots
+    # Info panel with animated loading dots
     steps = [
-        ("Scanning workspace", f"{path}"),
-        ("Detecting project", f"{project_name}"),
-        ("Checking git", f"{git_branch}"),
-        ("Loading memory", ".agent_memory.md"),
-        ("Initializing tools", "22 tools ready"),
+        ("🔍 Scanning workspace", f"{path}"),
+        ("📂 Detecting project", f"{project_name}"),
+        ("🔗 Checking git", f"{git_branch}"),
+        ("🧠 Loading memory", ".agent_memory.md"),
+        ("🔧 Initializing tools", "24 tools ready"),
     ]
     
     for label, value in steps:
-        console.print(f"  [dim]●[/dim] [bold white]{label}...[/bold white] [green]{value}[/green]")
-        time.sleep(0.12)
+        # Animated dots
+        sys.stdout.write(f"  {label}")
+        sys.stdout.flush()
+        for _ in range(3):
+            time.sleep(0.1)
+            sys.stdout.write(".")
+            sys.stdout.flush()
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        console.print(f"    [green]→ {value}[/green]")
+        time.sleep(0.05)
     
     console.print()
     console.print(Rule(style="cyan"))
     
-    # Random greeting
+    # Random greeting + tip
     greeting = random.choice(GREETINGS)
     tip = random.choice(TIPS)
-    console.print(f"\n  [bold white]{greeting}[/bold white]")
-    console.print(f"  [dim]{tip}[/dim]\n")
+    console.print(f"\n  [bold white]✦ {greeting}[/bold white]")
+    console.print(f"  [dim italic]{tip}[/dim italic]\n")
     console.print(Rule(style="cyan"))
     console.print()
 
