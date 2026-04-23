@@ -1,33 +1,53 @@
-# Iris Dataset End-to-End ML Example
+# End‑to‑End Machine Learning Pipeline
 
-This folder contains a minimal end‑to‑end (E2E) example of training a machine‑learning model on the classic **Iris** dataset using scikit‑learn.
+This repository demonstrates a simple end‑to‑end machine learning workflow that trains, evaluates, and saves models for two classic datasets: the Boston Housing dataset and the Wine Quality dataset.
 
-## Folder structure
+## Project Structure
 ```
- e2e/
- ├─ data/          # (optional) place for raw data files
- ├─ models/        # saved trained model(s)
- ├─ src/           # source code
- │   ├─ train.py   # script to train and save the model
- │   ├─ evaluate.py# script to load the model and evaluate it
- │   └─ __init__.py
- ├─ requirements.txt  # python dependencies
- └─ run_all.bat    # convenience batch file to run training + evaluation
+├── e2e/
+│   ├── README.md            # This file
+│   ├── requirements.txt     # Python dependencies
+│   ├── run_all.bat          # Batch script to run everything
+│   ├── data/                # Raw data (if any)
+│   ├── models/              # Trained model artifacts
+│   │   ├── model.joblib
+│   │   └── wine_model.joblib
+│   └── src/
+│       ├── __init__.py
+│       ├── train.py
+│       ├── train_housing.py
+│       ├── train_wine.py
+│       ├── evaluate.py
+│       ├── evaluate_wine.py
+│       └── experiment.py
 ```
 
-## How to run
+## Getting Started
 1. **Install dependencies**
-   ```bat
-   pip install -r requirements.txt
+   ```bash
+   pip install -r e2e/requirements.txt
    ```
-2. **Train the model**
-   ```bat
-   python src\train.py
+2. **Run the full pipeline**
+   ```bash
+   cd e2e
+   run_all.bat
    ```
-   This will create `models/model.joblib`.
-3. **Evaluate the model**
-   ```bat
-   python src\evaluate.py
-   ```
+   This will:
+   - Train the housing model (`train_housing.py`)
+   - Train the wine model (`train_wine.py`)
+   - Evaluate both models and print metrics
+   - Save the trained models to `e2e/models/`
 
-The scripts use the built‑in Iris dataset from scikit‑learn, so no external data files are required.
+## Scripts Overview
+- `train.py` – Generic training helper.
+- `train_housing.py` – Trains a regression model on the Boston Housing dataset.
+- `train_wine.py` – Trains a classification model on the Wine Quality dataset.
+- `evaluate.py` – Generic evaluation helper.
+- `evaluate_wine.py` – Evaluates the wine model.
+- `experiment.py` – Example script showing how to load a model and make predictions.
+
+## Customization
+Feel free to modify the hyperparameters in `train_housing.py` or `train_wine.py`. The models are saved using `joblib` for easy re‑loading.
+
+## License
+MIT © 2026
