@@ -9,6 +9,11 @@ from rich.rule import Rule
 from rich.table import Table
 from rich import box
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.styles import Style as PTStyle
+
 load_dotenv()
 
 BANNER = r"""
@@ -37,6 +42,42 @@ HELP_TEXT = """
 | `/git <cmd>`| Run any git command                      |
 | `exit`      | Quit the agent                           |
 """
+
+SLASH_COMMANDS = {
+    "/help":    "Show all available commands",
+    "/clear":   "Reset context window and start fresh",
+    "/compact": "Force-compact context to save tokens",
+    "/status":  "Show session stats (turns, tokens, git branch)",
+    "/undo":    "Git soft-reset the last commit",
+    "/diff":    "Show uncommitted git changes",
+    "/commit":  "Auto-commit all current changes",
+    "/git ":    "Run any git command (e.g. /git log -5)",
+    "exit":     "Quit the agent",
+}
+
+class SlashCompleter(Completer):
+    """Auto-suggest slash commands when user types /."""
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if text.startswith("/"):
+            for cmd, desc in SLASH_COMMANDS.items():
+                if cmd.startswith(text):
+                    yield Completion(
+                        cmd,
+                        start_position=-len(text),
+                        display=HTML(f"<b>{cmd}</b>"),
+                        display_meta=desc,
+                    )
+
+# Style for the prompt_toolkit input
+PT_STYLE = PTStyle.from_dict({
+    "prompt":      "#00d7ff bold",
+    "arrow":       "#ffffff bold",
+    "completion-menu.completion":          "bg:#1e1e2e #cdd6f4",
+    "completion-menu.completion.current":  "bg:#89b4fa #1e1e2e bold",
+    "completion-menu.meta.completion":          "bg:#313244 #a6adc8 italic",
+    "completion-menu.meta.completion.current":  "bg:#89b4fa #1e1e2e italic",
+})
 
 def _git_cmd(path, cmd):
     """Run a git command and return output."""
@@ -74,9 +115,19 @@ def main():
     console.print(Rule(style="cyan"))
     console.print()
 
+    # Create the prompt session with autocomplete
+    session = PromptSession(
+        completer=SlashCompleter(),
+        style=PT_STYLE,
+        complete_while_typing=True,
+    )
+
     while True:
         try:
-            instruction = console.input(f"[bold cyan]{project_name}[/bold cyan] [bold white]>[/bold white] ")
+            instruction = session.prompt(
+                [("class:prompt", f"{project_name}"), ("class:arrow", " > ")],
+                multiline=False,
+            )
         except (KeyboardInterrupt, EOFError):
             console.print("\n[bold red]✗ Session ended.[/bold red]")
             break

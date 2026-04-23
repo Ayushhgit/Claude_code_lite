@@ -7,3 +7,4 @@ requests
 beautifulsoup4
 rich
 arxiv
+prompt_toolkit

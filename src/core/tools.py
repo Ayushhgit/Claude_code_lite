@@ -226,7 +226,8 @@ def _approve_command(command: str) -> bool:
     console.print(f"  [dim]$[/dim] [bold white]{command}[/bold white]")
     
     try:
-        answer = console.input("  [bold cyan]Allow? (y/n):[/bold cyan] ").strip().lower()
+        from prompt_toolkit import prompt as pt_prompt
+        answer = pt_prompt("  Allow? (y/n): ").strip().lower()
         if answer in ('y', 'yes'):
             console.print("  [bold green]✓ Approved[/bold green]")
             return True
@@ -474,7 +475,8 @@ def ask_human_tool(question: str) -> str:
     console.print(f"\n  [bold magenta]💬 Agent has a question:[/bold magenta]")
     console.print(f"  [white]{question}[/white]")
     try:
-        answer = console.input("  [bold magenta]>[/bold magenta] ")
+        from prompt_toolkit import prompt as pt_prompt
+        answer = pt_prompt("  > ")
         return f"User replied: {answer}"
     except Exception as e:
         return f"Error getting user input: {e}"

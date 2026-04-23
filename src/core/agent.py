@@ -283,7 +283,8 @@ def run_turn(messages, instruction):
     # HUMAN-IN-THE-LOOP FEEDBACK
     console.print("[dim]  ─── Press Enter to continue, 'f' to request a fix, or type feedback ───[/dim]")
     try:
-        feedback = console.input("[dim]Feedback> [/dim]").strip()
+        from prompt_toolkit import prompt as pt_prompt
+        feedback = pt_prompt("  Feedback> ").strip()
         if feedback.lower() == 'f':
             console.print("[bold cyan]Sending fix request back to agent...[/bold cyan]")
             fix_result = call_llm_with_tools(messages + [{
