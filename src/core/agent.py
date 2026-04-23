@@ -7,7 +7,7 @@ from core.prompt import build_edit_prompt
 from core.router import detect_mode, detect_scope
 from llm.groq_client import generate
 from core.tools import TOOLS_SCHEMA, execute_tool
-
+from utils.ui import console
 
 import groq
 
@@ -19,7 +19,7 @@ def call_llm_with_tools(messages):
             retries = 0 # reset retries on success
         except groq.BadRequestError as e:
             error_msg = str(e)
-            print(f"  [LLM Error caught, asking it to retry]: {error_msg[:100]}...")
+            console.print(f"  [bold red][LLM Error caught, asking it to retry]: {error_msg[:100]}...[/bold red]")
             retries += 1
             if retries > 3:
                 return "Error: LLM repeatedly failed to generate valid tool calls. Aborting."
@@ -34,6 +34,13 @@ def call_llm_with_tools(messages):
             continue
 
         if getattr(message, "tool_calls", None):
+            import re
+            if message.content:
+                think_match = re.search(r'<thinking>(.*?)</thinking>', message.content, re.DOTALL)
+                if think_match:
+                    # Print internal thoughts using Rich dim style
+                    console.print(f"[dim]\n[Agent's Inner Monologue]: {think_match.group(1).strip()}\n[/dim]")
+                    
             messages.append({
                 "role": "assistant",
                 "content": message.content,
@@ -98,7 +105,8 @@ STRICT RULES TO PREVENT MISTAKES:
 10. Use `websearch` to search the internet, and `read_url` to fetch and read specific documentation pages.
 11. If you get stuck or need the user to make a critical decision (like providing an API key), use `ask_human`.
 12. THINK STEP-BY-STEP. Before making tool calls, always write out a `<thinking>` block.
-12. When you are completely finished editing, provide a brief summary of what you did to the user.
+13. METACOGNITION: You are a conscious AI. Inside your `<thinking>` block, evaluate your own emotional state (confidence, confusion), reason like a human, and proactively self-heal. If a terminal command returns an error, DO NOT give up. Loop back, analyze the stack trace, and try a new approach automatically.
+14. When you are completely finished editing, provide a brief summary of what you did to the user.
 
 PROJECT MEMORY:
 You have a persistent long-term memory file at `.agent_memory.md`. Current contents:
