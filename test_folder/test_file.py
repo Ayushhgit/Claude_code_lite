@@ -1,23 +1,15 @@
-import logging
-import functools
+def add(a: int, b: int) -> int:
+    """Adds two numbers.
 
-logging.basicConfig(level=logging.INFO)
+    Args:
+        a (int): The first number.
+        b (int): The second number.
 
-cache = {}
-
-def cached(func):
-    @functools.wraps(func)
-    def wrapper(*args):
-        if args in cache:
-            logging.info(f"Cache hit for {func.__name__} with args {args}")
-            return cache[args]
-        result = func(*args)
-        cache[args] = result
-        logging.info(f"Cache miss for {func.__name__} with args {args}, result cached")
-        return result
-    return wrapper
-
-@cached
-def add(a, b):
-    logging.info(f"Adding {a} and {b}")
+    Returns:
+        int: The sum of a and b.
+    """
     return a + b
+
+print(add(1, 2))  # Output: 3
+print(add(3, 4))  # Output: 7
+print(add(5, 6))  # Output: 11
