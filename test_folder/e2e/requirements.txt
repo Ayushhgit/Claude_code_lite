@@ -1,0 +1,3 @@
+# requirements.txt
+scikit-learn
+joblib
