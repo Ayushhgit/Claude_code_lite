@@ -1,4 +1,4 @@
-from core.agent import run_edit
+from core.agent import run
 from utils.files import write_file
 import os
 from dotenv import load_dotenv
@@ -8,14 +8,16 @@ def main():
     file_path = os.getenv("FOLDER_PATH")
     inst = input("What do you want to change?\n")
 
-    updated_code = run_edit(file_path, inst)
-    print("\n--- UPDATED CODE ---\n")
-    print(updated_code)
+    mode, output, final_path = run(file_path, inst)
+    print(f"\n[MODE: {mode.upper()}]")
+    print(f"[FILE: {final_path}]\n")
+    print(output)
 
-    save = input("Do you want to save it? (y/n): ")
-    if save.lower() == "y":
-        write_file(file_path, updated_code)
-        print("saved.")
+    if mode in ["edit", "debug"]:
+        save = input("\nSave changes? (y/n): ")
+        if save.lower() == "y":
+            write_file(final_path, output)
+            print("Saved.")
 
 if __name__ == "__main__":
     main()
