@@ -358,9 +358,10 @@ def get_file_symbols_tool(path: str) -> str:
 
 def ask_human_tool(question: str) -> str:
     """Pause execution and ask the human user a question."""
-    print(f"\n[AGENT ASKS THE USER]: {question}")
+    from utils.ui import console
+    console.print(f"\n[bold magenta][AGENT ASKS THE USER]: {question}[/bold magenta]")
     try:
-        answer = input("> ")
+        answer = console.input("[bold magenta]>[/bold magenta] ")
         return f"User replied: {answer}"
     except Exception as e:
         return f"Error getting user input: {e}"
@@ -768,7 +769,8 @@ TOOLS_SCHEMA = [
 ]
 
 def execute_tool(tool_name: str, args: dict) -> str:
-    print(f"  [Tool Call]: {tool_name}({', '.join(f'{k}={str(v)[:30]}...' for k,v in args.items())})")
+    from utils.ui import console
+    console.print(f"  [bold yellow][Tool Call]:[/bold yellow] {tool_name}({', '.join(f'{k}={str(v)[:30]}...' for k,v in args.items())})")
     if tool_name == "cat":
         return cat_tool(args.get("path", ""), args.get("start_line"), args.get("end_line"))
     elif tool_name == "grep":
