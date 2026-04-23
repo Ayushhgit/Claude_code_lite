@@ -230,33 +230,36 @@ def prune_messages(messages):
     """Claude Code-style context compaction."""
     MAX_TOKENS = 12000  # Keep well under most model limits
     
+    # Work on a copy so the caller's .clear() doesn't wipe our result
+    msgs = [m.copy() for m in messages]
+    
     # Step 1: Compress large tool outputs
-    messages = _compress_tool_results(messages)
+    msgs = _compress_tool_results(msgs)
     
     # Step 2: Summarize old assistant turns
-    messages = _summarize_old_turns(messages)
+    msgs = _summarize_old_turns(msgs)
     
     # Step 3: If still too large, drop oldest turns (keeping system + recent)
-    tokens = _estimate_tokens(messages)
-    if tokens > MAX_TOKENS and len(messages) > 10:
-        system_prompt = messages[0]
-        tail = messages[-20:]
+    tokens = _estimate_tokens(msgs)
+    if tokens > MAX_TOKENS and len(msgs) > 10:
+        system_prompt = msgs[0]
+        tail = msgs[-20:]
         
         # Ensure we don't start the tail with a 'tool' role
         while tail and tail[0]["role"] == "tool":
             tail.pop(0)
         
         # Create a compact summary of what was dropped
-        dropped_count = len(messages) - 1 - len(tail)
+        dropped_count = len(msgs) - 1 - len(tail)
         summary_msg = {
             "role": "user",
             "content": f"[Context compacted: {dropped_count} older messages were dropped to save space. Refer to .agent_memory.md for persistent context.]"
         }
         
-        messages = [system_prompt, summary_msg] + tail
-        console.print(f"[dim]  ♻ Context compacted: dropped {dropped_count} old messages ({tokens} → ~{_estimate_tokens(messages)} tokens)[/dim]")
+        msgs = [system_prompt, summary_msg] + tail
+        console.print(f"[dim]  ♻ Context compacted: dropped {dropped_count} old messages ({tokens} → ~{_estimate_tokens(msgs)} tokens)[/dim]")
     
-    return messages
+    return msgs
 
 def run_turn(messages, instruction):
     messages.append({
