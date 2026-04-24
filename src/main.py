@@ -167,7 +167,7 @@ def _animated_startup(path, project_name, git_branch):
         ("📂 Detecting project", f"{project_name}"),
         ("🔗 Checking git", f"{git_branch}"),
         ("🧠 Loading memory", ".agent_memory.md"),
-        ("🔧 Initializing tools", "39 tools ready"),
+        ("🔧 Initializing tools", "37 tools ready"),
     ]
     
     for label, value in steps:
