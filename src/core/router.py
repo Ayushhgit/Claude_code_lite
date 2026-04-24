@@ -8,15 +8,7 @@ def llm_router(text: str) -> str:
     messages = [
         {
             "role": "system",
-            "content": """
-Classify the user's intent into EXACTLY one of these modes:
-- edit (modifying existing code, adding new features to existing files)
-- explain (explaining how code works)
-- debug (fixing bugs, errors, or issues)
-- generate (creating completely new files from scratch)
-
-Return ONLY one word from the list. No explanation.
-"""
+            "content": "Classify intent: edit|explain|debug|generate. One word only."
         },
         {
             "role": "user",
@@ -35,13 +27,7 @@ def detect_scope(text: str) -> str:
     messages = [
         {
             "role": "system",
-            "content": """
-Classify the scope of the user's instruction into EXACTLY one of these scopes:
-- all (if the user wants to apply the change to all files, the entire project, every file, etc.)
-- single (if the user wants to apply the change to a specific file, or if no scope is explicitly mentioned)
-
-Return ONLY one word from the list. No explanation.
-"""
+            "content": "Classify scope: all|single. One word only."
         },
         {
             "role": "user",
