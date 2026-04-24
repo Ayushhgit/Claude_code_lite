@@ -45,6 +45,7 @@ Thumbs.db
 # Local configuration
 .env
 .env.*
+!.env.example
 
 # Python tooling
 pip-wheel-metadata/
