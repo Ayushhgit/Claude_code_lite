@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./assets/logo.png" alt="REVI Logo" width="300">
+  <img src="./assets/logo.png" alt="REVI Logo" width="800">
   <h1>⚡ REVI ⚡</h1>
   <p><strong>A Production-Grade, Autonomous AI Software Engineer</strong></p>
   <p>
