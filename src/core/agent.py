@@ -476,6 +476,17 @@ def call_llm_with_tools(messages):
                             console.print(f"  [bold yellow]⚠ Read-before-edit: {args.get('path')} overwritten without prior cat[/bold yellow]")
                             tool_result += "\n\n[⚠ AGENT NOTE: You overwrote an existing file without reading it first. Next time, cat the file first, then use replace_in_file or apply_diff for targeted edits.]"
 
+                        # Detect truncated file write: new file with suspiciously small content
+                        if tool_name == "edit_file":
+                            written_content = args.get("content", "")
+                            if pre_edit_path and len(written_content) < 80 and not pre_edit_exists:
+                                console.print(f"  [bold red]⚠ Truncated write detected: {args.get('path')} has only {len(written_content)} chars[/bold red]")
+                                tool_result += (
+                                    "\n\n[⚠ AGENT ERROR: The file content you wrote is too short/incomplete. "
+                                    "You MUST write the COMPLETE file content in one edit_file call — never truncate. "
+                                    "Delete this file and rewrite it with full, production-ready code.]"
+                                )
+
                     except Exception as e:
                         tool_result = f"Error executing tool (likely invalid JSON arguments): {e}"
 
@@ -516,6 +527,24 @@ def call_llm_with_tools(messages):
                             pass
         else:
             content = message.content.strip() if message.content else ""
+
+            # Detect "text-as-tool-command": model wrote a tool invocation as text
+            # e.g. "lint_check main.py" or "cat arithmetic_operations.py"
+            _tool_names = {t["function"]["name"] for t in active_tools}
+            _first_word = content.split()[0] if content.split() else ""
+            if _first_word in _tool_names and "\n" not in content.strip():
+                console.print(f"  [bold yellow]⚠ Model described a tool call as text: '{content}'. Forcing tool use...[/bold yellow]")
+                messages.append({"role": "assistant", "content": content})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"You wrote '{content}' as plain text instead of calling the tool. "
+                        "That does NOTHING. You MUST call the tool using the tool-use interface, "
+                        "not by writing its name in your response."
+                    )
+                })
+                continue
+
             # Model outputted code as text instead of using tools — attempt auto-rescue
             if "```" in content:
                 rescued = _rescue_code_blocks(content)
@@ -528,7 +557,6 @@ def call_llm_with_tools(messages):
                         console.print(f"  [green]✓ Created:[/green] {filename}")
                     return "Files created: " + ", ".join(f for f, _ in rescued)
                 else:
-                    # Can't extract filenames — push correction back and retry once
                     console.print("  [bold yellow]⚠ Model output code as text instead of using tools. Correcting...[/bold yellow]")
                     messages.append({"role": "assistant", "content": content})
                     messages.append({
@@ -626,6 +654,7 @@ WORKFLOW:
 
 CRITICAL RULES:
 ⚠ TOOL-FIRST: Never output code as text. No tool call = nothing happens. Use edit_file/replace_in_file/run_command.
+⚠ COMPLETE WRITES: edit_file content must be the FULL file — never truncate, never use "..." or placeholders. Small models must still write 100% of the code.
 ⚠ DIFF-FIRST: edit_file = NEW files only. Existing → replace_in_file (single) or apply_diff (multi). Never overwrite blindly.
 ⚠ SELF-HEAL: run_command errors → analyze traceback → fix → rerun. Auto-lint fires on .py edits — fix immediately. Max 3 attempts.
 ⚠ READ-FIRST: cat every file before editing. Never guess contents.
@@ -719,9 +748,8 @@ def run_turn(messages, instruction):
         from core.repo_map import get_ast_repo_map
         complexity = detect_complexity(instruction)
         
-        if complexity in ("complex", "medium"):
-            level_label = "Complex" if complexity == "complex" else "Multi-file"
-            console.print(f"  [bold magenta]📐 {level_label} task detected — engaging Architect agent...[/bold magenta]")
+        if complexity == "complex":
+            console.print(f"  [bold magenta]📐 Complex task detected — engaging Architect agent...[/bold magenta]")
             
             # Get repo context for the architect
             path = os.getenv("FOLDER_PATH", ".")
@@ -770,7 +798,7 @@ YOUR EXECUTION INSTRUCTIONS:
         from core.planner import detect_complexity, run_reviewer, load_plan
         path = os.getenv("FOLDER_PATH", ".")
         active_plan = load_plan(path)
-        if active_plan and detect_complexity(instruction) in ("complex", "medium"):
+        if active_plan and detect_complexity(instruction) == "complex":
             # Get actual git diff for the reviewer (much better than text summary)
             import subprocess
             diff_context = ""
@@ -809,7 +837,7 @@ YOUR EXECUTION INSTRUCTIONS:
     # AUTO-VERIFICATION (for complex/medium tasks — runs compile, import, lint checks)
     try:
         from core.planner import detect_complexity
-        if detect_complexity(instruction) in ("complex", "medium"):
+        if detect_complexity(instruction) == "complex":
             from core.verify import run_full_verification, format_verification_report
             path = os.getenv("FOLDER_PATH", ".")
             console.print("  [bold cyan]🔍 Auto-verifying changes...[/bold cyan]")
