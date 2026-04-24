@@ -1446,6 +1446,20 @@ TOOLS_SCHEMA = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "scan_codebase",
+            "description": "Deep scan the ENTIRE codebase — reads every file (code, models, data, docs, scripts, configs), understands what each module does, maps connections between them, detects the tech stack, and saves a persistent brain document. Use this when the user says 'scan the codebase' or when you need to deeply understand a project before making changes. After scanning, the brain auto-injects into your context on every turn.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Root directory to scan. Defaults to FOLDER_PATH."}
+                },
+                "required": []
+            }
+        }
     }
 ]
 
@@ -1467,6 +1481,7 @@ def execute_tool(tool_name: str, args: dict) -> str:
         'create_task': '📋', 'complete_task': '✅', 'get_tasks': '📝',
         'add_subtask': '📎', 'add_note': '🗒️', 'set_goal': '🎯',
         'sandbox_status': '🐳',
+        'scan_codebase': '🧠',
     }
     icon = TOOL_ICONS.get(tool_name, '🔧')
     
@@ -1566,5 +1581,8 @@ def execute_tool(tool_name: str, args: dict) -> str:
     elif tool_name == "sandbox_status":
         from core.sandbox import sandbox_status_tool
         return sandbox_status_tool()
+    elif tool_name == "scan_codebase":
+        from core.codebase_brain import scan_codebase_tool
+        return scan_codebase_tool(args.get("directory", ""))
     else:
         return f"Error: Unknown tool {tool_name}"

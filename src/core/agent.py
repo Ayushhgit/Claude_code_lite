@@ -14,26 +14,26 @@ import re
 
 # Fun spinner messages that cycle while the LLM is thinking
 SPINNER_MESSAGES = [
-    "Thinking really hard",
-    "Consulting the neural weights",
-    "Crunching tokens",
-    "Exploring the solution space",
-    "Parsing the possibilities",
-    "Summoning the right answer",
-    "Reading between the lines",
-    "Optimizing the approach",
-    "Brewing the perfect response",
-    "Connecting the dots",
-    "Reasoning through it",
-    "Almost there",
-    "Doing the math",
-    "Untangling the logic",
-    "Cross-referencing patterns",
-    "Synthesizing insights",
-    "Weighing the options",
-    "Searching the latent space",
-    "Activating neurons",
-    "Running inference",
+    "Thinking… but in a cool way",
+    "Consulting my inner vibes",
+    "Vibing with the tokens",
+    "Poking around the idea space",
+    "Sniffing out a good answer",
+    "Asking the brain gremlins",
+    "Doing some light overthinking",
+    "Pretending this is easy",
+    "Connecting suspicious dots",
+    "Squinting at the problem",
+    "Running entirely legal computations",
+    "Googling internally (don’t tell anyone)",
+    "Making educated guesses",
+    "Untangling spaghetti logic",
+    "Whispering to the algorithms",
+    "Summoning a decent response",
+    "Cooking up something smart",
+    "Applying questionable genius",
+    "Almost sounding confident",
+    "Finalizing something impressive-ish",
 ]
 
 SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -210,6 +210,10 @@ def _select_tools_for_intent(messages):
         "sandbox":    ["sandbox_status"],
         "docker":     ["sandbox_status"],
         "container":  ["sandbox_status"],
+        # v2: Deep Scan
+        "scan":       ["scan_codebase", "get_ast_map", "index_codebase"],
+        "brain":      ["scan_codebase"],
+        "understand":  ["scan_codebase", "get_ast_map"],
     }
     
     # Collect extra tools based on keywords
@@ -219,7 +223,7 @@ def _select_tools_for_intent(messages):
             extra_names.update(tools)
     
     # Always include some extras for general use
-    extra_names.update(["delete_file", "get_repo_map", "get_ast_map", "get_tasks"])
+    extra_names.update(["delete_file", "get_repo_map", "get_ast_map", "get_tasks", "scan_codebase"])
     
     # Build the final schema: core + intent-matched tools
     selected_names = core_names | extra_names
@@ -412,6 +416,16 @@ def init_messages(path):
         extra_context += f"\n\nACTIVE SCRATCHPAD:\n{scratchpad_context}"
     if plan_context:
         extra_context += f"\n\nACTIVE PLAN:\n{plan_context}"
+
+    # Try to load brain context (deep codebase understanding)
+    brain_context = ""
+    try:
+        from core.codebase_brain import get_brain_context
+        brain_context = get_brain_context(path)
+    except Exception:
+        pass
+    if brain_context:
+        extra_context += f"\n\nCODEBASE BRAIN (deep understanding from last scan):\n{brain_context}"
 
     return [
         {

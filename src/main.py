@@ -86,6 +86,7 @@ HELP_TEXT = """
 | `/compact`  | Force-compact context to save tokens     |
 | `/status`   | Show session stats                       |
 | `/map`      | Show AST-based codebase architecture     |
+| `/scan`     | Deep scan codebase + build brain document|
 | `/tasks`    | Show current task scratchpad             |
 | `/plan`     | Show the active execution plan           |
 | `/sandbox`  | Show Docker sandbox status               |
@@ -102,6 +103,7 @@ SLASH_COMMANDS = {
     "/compact": "Force-compact context to save tokens",
     "/status":  "Show session stats (turns, tokens, git branch)",
     "/map":     "Show AST-based codebase architecture map",
+    "/scan":    "Deep scan codebase and build brain document",
     "/tasks":   "Show current task scratchpad",
     "/plan":    "Show the active execution plan",
     "/sandbox": "Show Docker sandbox status",
@@ -165,7 +167,7 @@ def _animated_startup(path, project_name, git_branch):
         ("📂 Detecting project", f"{project_name}"),
         ("🔗 Checking git", f"{git_branch}"),
         ("🧠 Loading memory", ".agent_memory.md"),
-        ("🔧 Initializing tools", "38 tools ready"),
+        ("🔧 Initializing tools", "39 tools ready"),
     ]
     
     for label, value in steps:
@@ -314,6 +316,19 @@ def main():
                 from core.repo_map import get_ast_repo_map
                 ast_map = get_ast_repo_map(path)
                 console.print(Panel(ast_map[:3000], title="[bold green]🧬 AST Repository Map", border_style="green"))
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+            continue
+        
+        if cmd == "/scan":
+            console.print("  [bold cyan]🧠 Deep scanning entire codebase...[/bold cyan]")
+            try:
+                from core.codebase_brain import scan_codebase_tool
+                result = scan_codebase_tool(path)
+                console.print(Panel(result, title="[bold cyan]🧠 Codebase Brain", border_style="cyan"))
+                # Re-init messages so brain is injected into system prompt
+                messages = init_messages(path)
+                console.print("  [green]✓ Brain loaded into context. I now know exactly where everything is.[/green]")
             except Exception as e:
                 console.print(f"[red]Error: {e}[/red]")
             continue
