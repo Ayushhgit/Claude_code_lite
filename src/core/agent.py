@@ -123,7 +123,7 @@ def _select_tools_for_intent(messages):
     returns only the 8-12 tools relevant to the current task, keeping
     the CORE set always available.
     """
-    from core.tools import TOOLS_SCHEMA, CORE_TOOLS_SCHEMA
+    from core.tools import CORE_TOOLS_SCHEMA
     
     # Get the latest user message
     user_msg = ""
@@ -216,7 +216,6 @@ def _select_tools_for_intent(messages):
         "understand":  ["scan_codebase", "get_ast_map"],
         # v2: Verification
         "verify":     ["verify_project", "lint_check", "run_tests"],
-        "check":      ["verify_project", "lint_check", "run_tests"],
         "validate":   ["verify_project"],
     }
     
@@ -261,7 +260,7 @@ def call_llm_with_tools(messages):
                         messages.pop()
                 retry_msg_count = 0
             bad_retries = 0
-        except groq.RateLimitError as e:
+        except groq.RateLimitError:
             wait_time = min(2 ** rate_retries * 5, 60)
             console.print(f"  [bold yellow]⏳ Rate limited. Waiting {wait_time}s (context preserved)...[/bold yellow]")
             time.sleep(wait_time)
@@ -280,7 +279,7 @@ def call_llm_with_tools(messages):
             
             if bad_retries >= 3:
                 # Last resort: text-only (NO tools)
-                console.print(f"  [bold yellow]⚠ Falling back to text-only response (context preserved)...[/bold yellow]")
+                console.print("  [bold yellow]⚠ Falling back to text-only response (context preserved)...[/bold yellow]")
                 try:
                     message = generate(messages, tools=None)
                     result = message.content.strip() if message.content else "Error: Agent could not generate a response."
@@ -292,7 +291,7 @@ def call_llm_with_tools(messages):
             
             if bad_retries >= 2:
                 # Fallback: core tools only
-                console.print(f"  [bold yellow]⚠ Retrying with reduced tool set (context preserved)...[/bold yellow]")
+                console.print("  [bold yellow]⚠ Retrying with reduced tool set (context preserved)...[/bold yellow]")
                 from core.tools import CORE_TOOLS_SCHEMA
                 try:
                     message = generate(messages, tools=CORE_TOOLS_SCHEMA)
@@ -750,7 +749,7 @@ YOUR EXECUTION INSTRUCTIONS:
             if verify_report["overall"] == "FAIL":
                 # Feed failures back to the agent for self-healing
                 report_text = format_verification_report(verify_report)
-                console.print(f"  [bold red]❌ Verification FAILED — sending back for fixes...[/bold red]")
+                console.print("  [bold red]❌ Verification FAILED — sending back for fixes...[/bold red]")
                 fix_prompt = (
                     f"[AUTO-VERIFICATION FAILED]\n{report_text}\n\n"
                     "Please fix the issues above. For each failed check:\n"

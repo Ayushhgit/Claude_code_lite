@@ -28,7 +28,7 @@ import os
 import json
 import time
 import datetime
-from core.repo_map import build_repo_map, format_repo_map, SKIP_DIRS, SUPPORTED_EXTENSIONS
+from core.repo_map import build_repo_map, SKIP_DIRS, SUPPORTED_EXTENSIONS
 from utils.ui import console
 
 
@@ -684,7 +684,7 @@ def scan_codebase_tool(directory: str = "") -> str:
             ftype = info.get("type", "other")
             by_type.setdefault(ftype, []).append((path, info))
         
-        result_lines.append(f"\n\ud83d\udcc2 Non-code files:")
+        result_lines.append("\n\ud83d\udcc2 Non-code files:")
         for ftype, files_list in sorted(by_type.items()):
             result_lines.append(f"  {ftype.title()} ({len(files_list)}):") 
             for path, info in files_list[:5]:

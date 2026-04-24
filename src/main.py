@@ -10,8 +10,6 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.rule import Rule
 from rich.table import Table
-from rich.live import Live
-from rich.text import Text
 from rich import box
 
 from prompt_toolkit import PromptSession

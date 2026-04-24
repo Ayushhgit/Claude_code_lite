@@ -219,9 +219,9 @@ def _approve_command(command: str) -> bool:
     is_dangerous = any(pattern in cmd_lower for pattern in DANGEROUS_PATTERNS)
     
     if is_dangerous:
-        console.print(f"\n  [bold red]⚠  DANGEROUS COMMAND DETECTED[/bold red]")
+        console.print("\n  [bold red]⚠  DANGEROUS COMMAND DETECTED[/bold red]")
     else:
-        console.print(f"\n  [bold yellow]⚡ Command requires approval[/bold yellow]")
+        console.print("\n  [bold yellow]⚡ Command requires approval[/bold yellow]")
     
     console.print(f"  [dim]$[/dim] [bold white]{command}[/bold white]")
     
@@ -265,12 +265,12 @@ def run_command_tool(command: str) -> str:
         for line in display_output.split('\n')[:30]:  # Max 30 lines displayed
             console.print(f"  [dim]│[/dim] {line}")
         if len(output.strip()) > 2000 or output.count('\n') > 30:
-            console.print(f"  [dim]│ ... (truncated, full output sent to agent)[/dim]")
-        console.print(f"  [dim]└────[/dim]")
+            console.print("  [dim]│ ... (truncated, full output sent to agent)[/dim]")
+        console.print("  [dim]└────[/dim]")
         
         return output[:8000]  # Full output to agent for analysis
     except subprocess.TimeoutExpired:
-        console.print(f"  [bold red]  ⏱ Command timed out after 120s[/bold red]")
+        console.print("  [bold red]  ⏱ Command timed out after 120s[/bold red]")
         return "Error: Command timed out after 120 seconds."
     except Exception as e:
         console.print(f"  [bold red]  ✗ {e}[/bold red]")
@@ -486,7 +486,7 @@ def get_file_symbols_tool(path: str) -> str:
 def ask_human_tool(question: str) -> str:
     """Pause execution and ask the human user a question."""
     from utils.ui import console
-    console.print(f"\n  [bold magenta]💬 Agent has a question:[/bold magenta]")
+    console.print("\n  [bold magenta]💬 Agent has a question:[/bold magenta]")
     console.print(f"  [white]{question}[/white]")
     try:
         from prompt_toolkit import prompt as pt_prompt
@@ -505,13 +505,13 @@ def git_command_tool(command: str) -> str:
     blocked = ['push --force', 'reset --hard', 'clean -fd', 'branch -D']
     if any(b in cmd_lower for b in blocked):
         console.print(f"\n  [bold red]⚠  Dangerous git command blocked: git {command}[/bold red]")
-        console.print(f"  [dim]Use the terminal directly if you really need this.[/dim]")
+        console.print("  [dim]Use the terminal directly if you really need this.[/dim]")
         return "Blocked: This git command is destructive and requires manual execution."
     
     # Operations that need user approval
     needs_approval = ['commit', 'push', 'add', 'merge', 'rebase', 'checkout -b', 'tag']
     if any(op in cmd_lower for op in needs_approval):
-        console.print(f"\n  [bold yellow]📌 Git operation requires approval[/bold yellow]")
+        console.print("\n  [bold yellow]📌 Git operation requires approval[/bold yellow]")
         console.print(f"  [dim]$[/dim] [bold white]git {command}[/bold white]")
         try:
             from prompt_toolkit import prompt as pt_prompt

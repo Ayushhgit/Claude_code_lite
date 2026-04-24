@@ -21,9 +21,7 @@ import os
 import re
 import subprocess
 import sys
-import json
 import time
-import importlib
 from utils.ui import console
 
 
@@ -305,7 +303,7 @@ def run_full_verification(directory: str = None) -> dict:
     }
     if not tool_result["match"]:
         report["overall"] = "FAIL"
-        console.print(f"  [red]  ✗ Tools: schema/handler mismatch[/red]")
+        console.print("  [red]  ✗ Tools: schema/handler mismatch[/red]")
     elif tool_result["schema_count"] > 0:
         console.print(f"  [green]  ✓ Tools: {tool_result['schema_count']} schemas = {tool_result['handler_count']} handlers[/green]")
     

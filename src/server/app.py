@@ -1,6 +1,5 @@
 import os
 import json
-import threading
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -179,7 +178,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     # --- Issue Fix Trigger ---
     if "issue" in payload and action in ["opened", "labeled"]:
         issue = payload["issue"]
-        labels = [l.get("name", "") for l in issue.get("labels", [])]
+        labels = [lbl.get("name", "") for lbl in issue.get("labels", [])]
         
         if "revi-fix" in labels:
             issue_num = issue.get("number", 0)

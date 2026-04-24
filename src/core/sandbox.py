@@ -15,8 +15,6 @@ Features:
 
 import os
 import subprocess
-import json
-import time
 import atexit
 from utils.ui import console
 
@@ -293,8 +291,8 @@ def sandbox_status_tool() -> str:
 
     active = len(_active_containers)
     lines = [
-        f"Sandbox: ENABLED",
-        f"Docker: Available",
+        "Sandbox: ENABLED",
+        "Docker: Available",
         f"Active containers: {active}",
         f"Image: {os.getenv('SANDBOX_IMAGE', DEFAULT_IMAGE)}",
         f"Memory limit: {MEMORY_LIMIT}",

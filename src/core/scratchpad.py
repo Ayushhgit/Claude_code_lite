@@ -10,9 +10,7 @@ Stored at .revi/scratchpad.md — auto-injected into context.
 
 import os
 import json
-import time
 import datetime
-from utils.ui import console
 
 
 SCRATCHPAD_DIR = ".revi"
@@ -121,7 +119,7 @@ def complete_subtask(task_id: int, subtask_id: int, directory=None) -> str:
                     _regenerate_scratchpad(data, directory)
                     return f"Completed subtask {task_id}.{subtask_id}: {sub['title']}"
 
-    return f"Error: Subtask not found."
+    return "Error: Subtask not found."
 
 
 def set_session_goal(goal: str, directory=None) -> str:
@@ -144,7 +142,7 @@ def add_note(note: str, directory=None) -> str:
     data["notes"] = data["notes"][-20:]
     _save_tasks(data, directory)
     _regenerate_scratchpad(data, directory)
-    return f"Note added."
+    return "Note added."
 
 
 def clear_completed(directory=None) -> str:
@@ -172,7 +170,7 @@ def _regenerate_scratchpad(data, directory=None):
 
     # Session goal
     if data.get("session_goal"):
-        lines.append(f"## Current Goal")
+        lines.append("## Current Goal")
         lines.append(f"**{data['session_goal']}**")
         lines.append("")
 
