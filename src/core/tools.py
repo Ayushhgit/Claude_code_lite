@@ -1488,6 +1488,39 @@ TOOLS_SCHEMA = [
                 "required": ["query_node_name"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github_comment",
+            "description": "Post a comment on a GitHub Issue or Pull Request. Requires GITHUB_TOKEN env var.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "Full repo name, e.g. 'owner/repo'"},
+                    "issue_or_pr_number": {"type": "integer", "description": "Issue or PR number"},
+                    "comment_body": {"type": "string", "description": "Markdown text to post as comment"}
+                },
+                "required": ["repo", "issue_or_pr_number", "comment_body"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "github_pr_review",
+            "description": "Submit a formal review on a GitHub Pull Request (approve, request changes, or comment). Requires GITHUB_TOKEN env var.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "Full repo name, e.g. 'owner/repo'"},
+                    "pr_number": {"type": "integer", "description": "Pull request number"},
+                    "body": {"type": "string", "description": "Review summary text (markdown)"},
+                    "event": {"type": "string", "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"], "description": "Review action: APPROVE, REQUEST_CHANGES, or COMMENT"}
+                },
+                "required": ["repo", "pr_number", "body", "event"]
+            }
+        }
     }
 ]
 
@@ -1512,6 +1545,8 @@ def execute_tool(tool_name: str, args: dict) -> str:
         'scan_codebase': '🧠',
         'verify_project': '🔍',
         'query_graph': '🕸️',
+        'github_comment': '💬',
+        'github_pr_review': '🔎',
     }
     icon = TOOL_ICONS.get(tool_name, '🔧')
     
@@ -1620,5 +1655,61 @@ def execute_tool(tool_name: str, args: dict) -> str:
     elif tool_name == "query_graph":
         from core.semantic_graph import query_graph_tool
         return query_graph_tool(args.get("query_node_name", ""))
+    elif tool_name == "github_comment":
+        return github_comment_tool(args.get("repo", ""), args.get("issue_or_pr_number", 0), args.get("comment_body", ""))
+    elif tool_name == "github_pr_review":
+        return github_pr_review_tool(args.get("repo", ""), args.get("pr_number", 0), args.get("body", ""), args.get("event", "COMMENT"))
     else:
         return f"Error: Unknown tool {tool_name}"
+
+def github_comment_tool(repo: str, issue_or_pr_number: int, comment_body: str) -> str:
+    """Tool: Post a comment on a GitHub Issue or Pull Request.
+    Requires GITHUB_TOKEN environment variable.
+    """
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        return "Error: GITHUB_TOKEN environment variable is not set."
+
+    url = f"https://api.github.com/repos/{repo}/issues/{issue_or_pr_number}/comments"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+    }
+
+    import requests
+    try:
+        response = requests.post(url, headers=headers, json={"body": comment_body}, timeout=10)
+        if response.status_code == 201:
+            return f"Successfully posted comment to {repo}#{issue_or_pr_number}"
+        return f"Failed to post comment: HTTP {response.status_code} - {response.text}"
+    except Exception as e:
+        return f"Error posting comment: {e}"
+
+def github_pr_review_tool(repo: str, pr_number: int, body: str, event: str = "COMMENT") -> str:
+    """Tool: Submit a formal review on a GitHub Pull Request.
+    Requires GITHUB_TOKEN environment variable.
+    """
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        return "Error: GITHUB_TOKEN environment variable is not set."
+
+    valid_events = {"APPROVE", "REQUEST_CHANGES", "COMMENT"}
+    if event not in valid_events:
+        return f"Error: event must be one of {valid_events}, got '{event}'"
+
+    url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+    }
+
+    import requests
+    try:
+        response = requests.post(url, headers=headers, json={"body": body, "event": event}, timeout=10)
+        if response.status_code == 200:
+            return f"Review submitted on {repo}#{pr_number} ({event})"
+        return f"Failed to submit review: HTTP {response.status_code} - {response.text}"
+    except Exception as e:
+        return f"Error submitting review: {e}"
