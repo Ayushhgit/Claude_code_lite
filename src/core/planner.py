@@ -208,7 +208,7 @@ def run_architect(instruction: str, repo_context: str = "") -> dict:
     ]
 
     console.print("  [bold magenta]🏗️  Architect agent is designing the plan...[/bold magenta]")
-    console.print("  [dim]  → Analyzed AST map, key files, and memory[/dim]")
+    console.print("  [dim]  -> Analyzed AST map, key files, and memory[/dim]")
 
     try:
         response = generate(messages)

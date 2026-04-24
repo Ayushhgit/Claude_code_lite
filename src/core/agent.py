@@ -214,6 +214,10 @@ def _select_tools_for_intent(messages):
         "scan":       ["scan_codebase", "get_ast_map", "index_codebase"],
         "brain":      ["scan_codebase"],
         "understand":  ["scan_codebase", "get_ast_map"],
+        # v2: Verification
+        "verify":     ["verify_project", "lint_check", "run_tests"],
+        "check":      ["verify_project", "lint_check", "run_tests"],
+        "validate":   ["verify_project"],
     }
     
     # Collect extra tools based on keywords
@@ -223,7 +227,7 @@ def _select_tools_for_intent(messages):
             extra_names.update(tools)
     
     # Always include some extras for general use
-    extra_names.update(["delete_file", "get_repo_map", "get_ast_map", "get_tasks", "scan_codebase"])
+    extra_names.update(["delete_file", "get_repo_map", "get_ast_map", "get_tasks", "scan_codebase", "verify_project"])
     
     # Build the final schema: core + intent-matched tools
     selected_names = core_names | extra_names
@@ -470,11 +474,16 @@ PHASE 3 — BUILD (systematic, module by module):
 
 PHASE 4 — VERIFY (mandatory after ALL changes):
   After you believe you're done:
-  1. Run `lint_check` on every modified Python file.
-  2. Run `run_tests` to execute the test suite.
-  3. If tests fail, read the error, fix the code, and re-run. Repeat up to 3 times.
-  4. Run a quick `run_command` to verify the code actually executes (e.g. `python -c "import module"`).
-  5. NEVER report success without verification.
+  1. Run `verify_project` — this runs ALL checks at once:
+     - Compile check (py_compile on every .py file)
+     - Import resolution (validates all imports resolve)
+     - Lint check (syntax validation)
+     - Test suite (if tests exist)
+     - Tool schema consistency (if applicable)
+  2. If any check fails, fix the issue and re-run `verify_project`.
+  3. Repeat up to 3 times. If still broken, use `ask_human`.
+  4. NEVER report success without verification passing.
+  The system also auto-verifies after complex tasks — if it fails, you'll get the report automatically.
 
 PHASE 5 — COMMIT (with proper messages):
   After verification passes:
@@ -519,6 +528,8 @@ EXECUTION TOOLS:
   - `run_background_command` — Start a long-running process (dev servers, etc.).
   - `lint_check` — Run linter on a Python file. USE AFTER EVERY EDIT.
   - `run_tests` — Run the project's test suite. USE AFTER ALL CHANGES.
+  - `verify_project` — Run FULL verification (compile + imports + lint + tests + schema check). USE AFTER COMPLEX TASKS.
+  - `scan_codebase` — Deep scan entire codebase and build persistent brain document. USE AT START OF SESSION.
 
 PLANNING TOOLS:
   - `set_goal` — Declare the session's high-level objective.
@@ -627,7 +638,7 @@ def prune_messages(messages):
         }
         
         msgs = [system_prompt, summary_msg] + tail
-        console.print(f"[dim]  ♻ Context compacted: dropped {dropped_count} old messages ({tokens} → ~{_estimate_tokens(msgs)} tokens)[/dim]")
+        console.print(f"[dim]  >> Context compacted: dropped {dropped_count} old messages ({tokens} -> ~{_estimate_tokens(msgs)} tokens)[/dim]")
     
     return msgs
 
@@ -715,12 +726,42 @@ YOUR EXECUTION INSTRUCTIONS:
                 console.print("  [yellow]📝 Reviewer requested changes — sending back to executor...[/yellow]")
                 review_feedback = f"[REVIEWER FEEDBACK] Score: {review.get('score', '?')}/10. Issues: "
                 for issue in review.get("issues", [])[:3]:
-                    review_feedback += f"\n- [{issue.get('severity', '?')}] {issue.get('description', '')} → Fix: {issue.get('fix', '')}"
+                    review_feedback += f"\n- [{issue.get('severity', '?')}] {issue.get('description', '')} -> Fix: {issue.get('fix', '')}"
                 review_feedback += "\n\nPlease fix these issues. Read the affected files first, make the corrections, then lint_check each one."
                 messages.append({"role": "user", "content": review_feedback})
                 fix_result = call_llm_with_tools(messages)
                 messages.append({"role": "assistant", "content": fix_result})
                 result = fix_result
+    except Exception:
+        pass
+
+    # AUTO-VERIFICATION (for complex/medium tasks — runs compile, import, lint checks)
+    try:
+        from core.planner import detect_complexity
+        if detect_complexity(instruction) in ("complex", "medium"):
+            from core.verify import run_full_verification, format_verification_report
+            path = os.getenv("FOLDER_PATH", ".")
+            console.print("  [bold cyan]🔍 Auto-verifying changes...[/bold cyan]")
+            verify_report = run_full_verification(path)
+            
+            if verify_report["overall"] == "FAIL":
+                # Feed failures back to the agent for self-healing
+                report_text = format_verification_report(verify_report)
+                console.print(f"  [bold red]❌ Verification FAILED — sending back for fixes...[/bold red]")
+                fix_prompt = (
+                    f"[AUTO-VERIFICATION FAILED]\n{report_text}\n\n"
+                    "Please fix the issues above. For each failed check:\n"
+                    "1. Read the failing file with `cat`\n"
+                    "2. Fix the issue with `replace_in_file`\n"
+                    "3. Run `lint_check` on the fixed file\n"
+                    "4. Then run `verify_project` to confirm everything passes."
+                )
+                messages.append({"role": "user", "content": fix_prompt})
+                fix_result = call_llm_with_tools(messages)
+                messages.append({"role": "assistant", "content": fix_result})
+                result = fix_result
+            else:
+                console.print(f"  [bold green]✅ Verification PASSED ({verify_report.get('summary', '')})[/bold green]")
     except Exception:
         pass
 

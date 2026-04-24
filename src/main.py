@@ -90,6 +90,7 @@ HELP_TEXT = """
 | `/tasks`    | Show current task scratchpad             |
 | `/plan`     | Show the active execution plan           |
 | `/sandbox`  | Show Docker sandbox status               |
+| `/verify`   | Run full project verification             |
 | `/undo`     | Git undo last commit                     |
 | `/diff`     | Show uncommitted git changes             |
 | `/commit`   | Auto-commit all changes                  |
@@ -107,6 +108,7 @@ SLASH_COMMANDS = {
     "/tasks":   "Show current task scratchpad",
     "/plan":    "Show the active execution plan",
     "/sandbox": "Show Docker sandbox status",
+    "/verify":  "Run full project verification (compile + lint + tests)",
     "/undo":    "Git soft-reset the last commit",
     "/diff":    "Show uncommitted git changes",
     "/commit":  "Auto-commit all current changes",
@@ -167,7 +169,7 @@ def _animated_startup(path, project_name, git_branch):
         ("📂 Detecting project", f"{project_name}"),
         ("🔗 Checking git", f"{git_branch}"),
         ("🧠 Loading memory", ".agent_memory.md"),
-        ("🔧 Initializing tools", "37 tools ready"),
+        ("🔧 Initializing tools", "38 tools ready"),
     ]
     
     for label, value in steps:
@@ -180,7 +182,7 @@ def _animated_startup(path, project_name, git_branch):
             sys.stdout.flush()
         sys.stdout.write("\n")
         sys.stdout.flush()
-        console.print(f"    [green]→ {value}[/green]")
+        console.print(f"    [green]-> {value}[/green]")
         time.sleep(0.05)
     
     console.print()
@@ -269,7 +271,7 @@ def main():
             messages.clear()
             messages.extend(pruned)
             after = _estimate_tokens(messages)
-            console.print(f"[bold green]✓ Compacted: {before} → {after} tokens (freed ~{before - after})[/bold green]\n")
+            console.print(f"[bold green]>> Compacted: {before} -> {after} tokens (freed ~{before - after})[/bold green]\n")
             continue
             
         if cmd == "/status":
@@ -359,6 +361,18 @@ def main():
                 from core.sandbox import sandbox_status_tool
                 status = sandbox_status_tool()
                 console.print(Panel(status, title="[bold blue]🐳 Sandbox Status", border_style="blue"))
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+            continue
+        
+        if cmd == "/verify":
+            console.print("  [bold cyan]🔍 Running full project verification...[/bold cyan]")
+            try:
+                from core.verify import run_full_verification, format_verification_report
+                report = run_full_verification(path)
+                result_text = format_verification_report(report)
+                border = "green" if report["overall"] == "PASS" else "red"
+                console.print(Panel(result_text, title=f"[bold {border}]🔍 Verification Report", border_style=border))
             except Exception as e:
                 console.print(f"[red]Error: {e}[/red]")
             continue

@@ -445,7 +445,7 @@ def generate_brain_document(brain: dict) -> str:
         # Functions
         for func in module.get("functions", []):
             args = ", ".join(func.get("args", [])[:5])
-            ret = f" → {func['return_type']}" if func.get("return_type") else ""
+            ret = f" -> {func['return_type']}" if func.get("return_type") else ""
             lines.append(f"- **def {func['name']}**({args}){ret}")
             if func.get("docstring"):
                 lines.append(f"  - _{func['docstring']}_")
@@ -617,7 +617,7 @@ def scan_codebase_tool(directory: str = "") -> str:
         return f"Error: Directory {directory} does not exist."
 
     console.print("  [bold cyan]🧠 Deep scanning codebase...[/bold cyan]")
-    console.print("  [dim]  → Reading every file, analyzing structure and purpose...[/dim]")
+    console.print("  [dim]  -> Reading every file, analyzing structure and purpose...[/dim]")
 
     brain = deep_scan(directory)
     save_brain(brain, directory)
@@ -625,7 +625,7 @@ def scan_codebase_tool(directory: str = "") -> str:
     # Also trigger the vector index for semantic search
     try:
         from core.memory import index_codebase
-        console.print("  [dim]  → Building vector index for semantic search...[/dim]")
+        console.print("  [dim]  -> Building vector index for semantic search...[/dim]")
         index_codebase(directory)
     except Exception:
         pass

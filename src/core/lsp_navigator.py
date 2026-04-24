@@ -293,7 +293,7 @@ def go_to_definition(symbol: str, directory: str = None) -> str:
 
     lines = [f"Found {len(all_defs)} definition(s) for '{symbol}':"]
     for d in all_defs:
-        lines.append(f"  [{d.get('type', '?')}] {d['file']}:L{d['line']} → {d.get('context', '')}")
+        lines.append(f"  [{d.get('type', '?')}] {d['file']}:L{d['line']} -> {d.get('context', '')}")
 
     return "\n".join(lines)
 
@@ -336,7 +336,7 @@ def find_implementations(class_name: str, directory: str = None) -> str:
 
     lines = [f"Found {len(all_impls)} implementation(s) of '{class_name}':"]
     for impl in all_impls:
-        lines.append(f"  {impl['file']}:L{impl['line']} → {impl.get('context', '')}")
+        lines.append(f"  {impl['file']}:L{impl['line']} -> {impl.get('context', '')}")
 
     return "\n".join(lines)
 
@@ -377,6 +377,6 @@ def get_call_graph(function_name: str, directory: str = None) -> str:
     lines = [f"Found {len(all_callers)} caller(s) of '{function_name}()':"]
     for c in all_callers:
         ctx = c.get("context", f"{c.get('caller', '?')}() calls {function_name}()")
-        lines.append(f"  {c['file']}:L{c['line']} → {ctx}")
+        lines.append(f"  {c['file']}:L{c['line']} -> {ctx}")
 
     return "\n".join(lines)

@@ -1460,6 +1460,20 @@ TOOLS_SCHEMA = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "verify_project",
+            "description": "Run full project verification: compile check all Python files, validate imports resolve, lint check, run tests if they exist, and verify tool schema consistency. Returns a structured pass/fail report. Use this AFTER making changes to verify nothing is broken.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Root directory to verify. Defaults to FOLDER_PATH."}
+                },
+                "required": []
+            }
+        }
     }
 ]
 
@@ -1482,6 +1496,7 @@ def execute_tool(tool_name: str, args: dict) -> str:
         'add_subtask': '📎', 'add_note': '🗒️', 'set_goal': '🎯',
         'sandbox_status': '🐳',
         'scan_codebase': '🧠',
+        'verify_project': '🔍',
     }
     icon = TOOL_ICONS.get(tool_name, '🔧')
     
@@ -1584,5 +1599,8 @@ def execute_tool(tool_name: str, args: dict) -> str:
     elif tool_name == "scan_codebase":
         from core.codebase_brain import scan_codebase_tool
         return scan_codebase_tool(args.get("directory", ""))
+    elif tool_name == "verify_project":
+        from core.verify import verify_project_tool
+        return verify_project_tool(args.get("directory", ""))
     else:
         return f"Error: Unknown tool {tool_name}"
