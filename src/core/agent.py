@@ -452,7 +452,7 @@ def call_llm_with_tools(messages):
                         args = _safe_parse_json(raw_args)
                         broadcast_sync("tool", f"Executing: {tool_name}({raw_args})")
 
-                        # Read-before-edit guard: snapshot existence before the write
+                        # Resolve edit_file target path
                         pre_edit_path = None
                         pre_edit_exists = False
                         if tool_name == "edit_file":
@@ -461,6 +461,24 @@ def call_llm_with_tools(messages):
                                 _ep = os.path.join(os.getenv("FOLDER_PATH", "."), _ep)
                             pre_edit_path = os.path.normpath(_ep)
                             pre_edit_exists = os.path.exists(pre_edit_path)
+
+                        # BLOCK edit_file on existing files — force replace_in_file/apply_diff
+                        if tool_name == "edit_file" and pre_edit_exists:
+                            rel = args.get("path", pre_edit_path)
+                            console.print(f"  [bold red]✗ Blocked edit_file on existing file '{rel}' — use replace_in_file or apply_diff[/bold red]")
+                            tool_result = (
+                                f"BLOCKED: '{rel}' already exists. edit_file is for NEW files only. "
+                                "To modify an existing file you MUST use replace_in_file (single change) "
+                                "or apply_diff (multiple changes). First cat the file to read its current "
+                                "content, then use the correct tool."
+                            )
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "name": tool_name,
+                                "content": tool_result
+                            })
+                            continue
 
                         tool_result = execute_tool(tool_name, args)
 
@@ -471,20 +489,15 @@ def call_llm_with_tools(messages):
                                 _cp = os.path.join(os.getenv("FOLDER_PATH", "."), _cp)
                             files_read_this_turn.add(os.path.normpath(_cp))
 
-                        # Warn when existing file overwritten without prior read
-                        if tool_name == "edit_file" and pre_edit_exists and pre_edit_path not in files_read_this_turn:
-                            console.print(f"  [bold yellow]⚠ Read-before-edit: {args.get('path')} overwritten without prior cat[/bold yellow]")
-                            tool_result += "\n\n[⚠ AGENT NOTE: You overwrote an existing file without reading it first. Next time, cat the file first, then use replace_in_file or apply_diff for targeted edits.]"
-
-                        # Detect truncated file write: new file with suspiciously small content
+                        # Detect truncated file write (new files)
                         if tool_name == "edit_file":
                             written_content = args.get("content", "")
-                            if pre_edit_path and len(written_content) < 80 and not pre_edit_exists:
-                                console.print(f"  [bold red]⚠ Truncated write detected: {args.get('path')} has only {len(written_content)} chars[/bold red]")
+                            if pre_edit_path and len(written_content) < 80:
+                                console.print(f"  [bold red]⚠ Truncated write: {args.get('path')} has only {len(written_content)} chars[/bold red]")
                                 tool_result += (
-                                    "\n\n[⚠ AGENT ERROR: The file content you wrote is too short/incomplete. "
-                                    "You MUST write the COMPLETE file content in one edit_file call — never truncate. "
-                                    "Delete this file and rewrite it with full, production-ready code.]"
+                                    "\n\n[⚠ AGENT ERROR: File content is too short/incomplete. "
+                                    "You MUST write the COMPLETE file in one edit_file call — never truncate. "
+                                    "Delete and rewrite with full production-ready code.]"
                                 )
 
                     except Exception as e:
