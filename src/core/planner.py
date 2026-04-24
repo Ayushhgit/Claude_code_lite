@@ -14,7 +14,7 @@ Architect → Executor → Reviewer pipeline.
 import os
 import json
 import re
-from llm.groq_client import generate
+from llm.client import generate
 from utils.ui import console
 
 

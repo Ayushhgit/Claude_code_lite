@@ -1,4 +1,4 @@
-from llm.groq_client import generate
+from llm.client import generate
 
 
 def llm_pick_file(files, instruction):

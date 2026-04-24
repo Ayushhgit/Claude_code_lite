@@ -5,7 +5,7 @@ import random
 import threading
 import sys
 
-from llm.groq_client import generate
+from llm.client import generate
 from core.tools import TOOLS_SCHEMA, execute_tool
 from utils.ui import console
 
