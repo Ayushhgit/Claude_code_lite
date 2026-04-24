@@ -50,6 +50,46 @@ def _is_rate_limit(exception) -> bool:
     return any(code in s for code in ['429', 'rate_limit', 'rate limit', '503', '502', '500'])
 
 
+def _sanitize_str(s: str) -> str:
+    """Strip surrogate characters that break JSON serialization."""
+    return s.encode("utf-8", errors="replace").decode("utf-8")
+
+
+def _sanitize_messages(messages: list) -> list:
+    """Recursively sanitize all string values in messages list."""
+    result = []
+    for msg in messages:
+        m = dict(msg)
+        if isinstance(m.get("content"), str):
+            m["content"] = _sanitize_str(m["content"])
+        elif isinstance(m.get("content"), list):
+            sanitized_parts = []
+            for part in m["content"]:
+                if isinstance(part, dict):
+                    p = dict(part)
+                    if isinstance(p.get("text"), str):
+                        p["text"] = _sanitize_str(p["text"])
+                    sanitized_parts.append(p)
+                else:
+                    sanitized_parts.append(part)
+            m["content"] = sanitized_parts
+        # Sanitize tool_calls if present
+        if m.get("tool_calls"):
+            clean_calls = []
+            for tc in m["tool_calls"]:
+                if isinstance(tc, dict):
+                    tc = dict(tc)
+                    if isinstance(tc.get("function"), dict):
+                        fn = dict(tc["function"])
+                        if isinstance(fn.get("arguments"), str):
+                            fn["arguments"] = _sanitize_str(fn["arguments"])
+                        tc["function"] = fn
+                clean_calls.append(tc)
+            m["tool_calls"] = clean_calls
+        result.append(m)
+    return result
+
+
 def _generate_groq(messages, tools, task_type="mid"):
     from groq import Groq
     from llm import model_router
@@ -77,7 +117,7 @@ def _generate_groq(messages, tools, task_type="mid"):
             response = client.chat.completions.create(
                 model=model,
                 temperature=0.2,
-                messages=messages,
+                messages=_sanitize_messages(messages),
                 **kwargs
             )
             message = response.choices[0].message
@@ -132,7 +172,7 @@ def _generate_gemini(messages, tools):
             response = client.chat.completions.create(
                 model=model,
                 temperature=0.2,
-                messages=messages,
+                messages=_sanitize_messages(messages),
                 **kwargs
             )
             message = response.choices[0].message
