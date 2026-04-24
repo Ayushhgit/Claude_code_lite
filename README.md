@@ -29,16 +29,16 @@ REVI doesn't just read files; it *understands* your project.
 - **Persistent Knowledge**: Builds a `codebase_brain.md` document and vector index, retaining knowledge across sessions.
 - **Contextual Awareness**: Automatically injects a compact project map into the LLM context, ensuring it always knows where things are without re-reading.
 
-### 🕸️ Semantic Code Graph (RAG 2.0)
+### Semantic Code Graph (RAG 2.0)
 - **Zero-Regression Refactoring**: Maps your entire codebase using `NetworkX` to build a directed graph of function calls, class definitions, and dependencies.
 - **`query_graph` Tool**: When REVI modifies a function, it instantly queries the graph to find every other file or API route that will break as a result, fixing them proactively.
 
-### 🌐 Real-time Web Dashboard
+### Real-time Web Dashboard
 - **Command Center**: Run `/dashboard` to launch a FastAPI/React web UI.
 - **Live Thought Stream**: Watch the agent's internal thoughts and tool executions stream in real-time via WebSockets.
 - **3D Visualization**: Interactively explore your codebase's Semantic Graph in a 3D-force layout directly in the browser.
 
-### 🐙 CI/CD Daemon Mode
+### CI/CD Daemon Mode
 - **GitHub Webhooks**: Run REVI as a background daemon exposing a webhook endpoint.
 - **Autonomous Fixes**: When a GitHub Issue is opened and tagged with `revi-fix`, REVI wakes up in the background, writes the code to fix the issue, and pushes it automatically.
 
