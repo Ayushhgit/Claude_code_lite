@@ -689,12 +689,12 @@ CORE_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "edit_file",
-            "description": "Create or overwrite a file with new content.",
+            "description": "Create a NEW file with full content. For existing files use replace_in_file or apply_diff instead — edit_file on an existing file is BLOCKED.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "File path."},
-                    "content": {"type": "string", "description": "Full file content."}
+                    "path": {"type": "string", "description": "File path (new file only)."},
+                    "content": {"type": "string", "description": "Complete file content. Never truncate."}
                 },
                 "required": ["path", "content"]
             }
@@ -747,15 +747,41 @@ CORE_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "replace_in_file",
-            "description": "Replace exact text in a file.",
+            "description": "Replace exact text in an existing file. Use for single changes.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "File path."},
-                    "target": {"type": "string", "description": "Text to find."},
+                    "target": {"type": "string", "description": "Exact text to find (include full lines for context)."},
                     "replacement": {"type": "string", "description": "Replacement text."}
                 },
                 "required": ["path", "target", "replacement"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "apply_diff",
+            "description": "Apply multiple search/replace blocks to an existing file in one call. Use for multiple changes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path."},
+                    "diffs": {
+                        "type": "array",
+                        "description": "List of {search, replace} blocks.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "search": {"type": "string", "description": "Exact text to find."},
+                                "replace": {"type": "string", "description": "Replacement text."}
+                            },
+                            "required": ["search", "replace"]
+                        }
+                    }
+                },
+                "required": ["path", "diffs"]
             }
         }
     },
@@ -915,17 +941,17 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "edit_file",
-            "description": "Write or overwrite a file with new code.",
+            "description": "Create a NEW file only. NEVER use on existing files — it will be BLOCKED. For existing files: use replace_in_file (single change) or apply_diff (multiple changes). Content must be complete — never truncate.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "The path to the file to edit or create."
+                        "description": "Path to the new file to create."
                     },
                     "content": {
                         "type": "string",
-                        "description": "The complete, raw code to write to the file. Must be the full file content."
+                        "description": "Complete file content. Must be the FULL file — no truncation, no placeholders."
                     }
                 },
                 "required": ["path", "content"]
