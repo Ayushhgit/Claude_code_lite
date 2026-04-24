@@ -103,51 +103,126 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # --- CI/CD Webhook Endpoint ---
 
-def run_revi_agent(instruction: str):
-    """Background task to run the agent."""
-    import sys
-    sys.path.insert(0, 'src')
-    from core.agent import run_turn, init_messages
-    
-    # Send a broadcast that we're starting
+def _broadcast_sync(msg_type: str, message: str):
+    """Thread-safe broadcast helper for background tasks."""
     import asyncio
+    payload = json.dumps({"type": msg_type, "message": message})
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
-    loop.run_until_complete(broadcaster.broadcast(json.dumps({
-        "type": "system",
-        "message": f"Webhook triggered agent: {instruction}"
-    })))
+        loop.run_until_complete(broadcaster.broadcast(payload))
+        loop.close()
+    except Exception:
+        pass  # Dashboard might not be connected — that's fine
+
+def run_revi_agent(instruction: str, branch_name: str = ""):
+    """
+    Background task: runs the REVI agent to fix an issue.
+    Creates a git branch, runs the agent, commits, and pushes.
+    """
+    import subprocess
     
-    # Run the agent (simulated background run)
+    directory = os.getenv("FOLDER_PATH", ".")
+    _broadcast_sync("system", f"Agent triggered: {instruction[:120]}...")
+    
+    # Step 1: Create a branch for the fix (if branch_name provided)
+    if branch_name:
+        try:
+            subprocess.run(["git", "checkout", "-b", branch_name], cwd=directory, capture_output=True, timeout=10)
+            _broadcast_sync("system", f"Created branch: {branch_name}")
+        except Exception as e:
+            _broadcast_sync("system", f"Branch creation warning: {e}")
+    
+    # Step 2: Run the agent
     try:
-        messages = init_messages(os.getenv("FOLDER_PATH", "."))
-        run_turn(messages, instruction, turn_count=1)
+        import sys
+        if 'src' not in sys.path:
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+            
+        from core.agent import init_messages, run_turn
+        
+        messages = init_messages(directory)
+        result = run_turn(messages, instruction)
+        _broadcast_sync("system", f"Agent completed: {str(result)[:200]}")
     except Exception as e:
-        loop.run_until_complete(broadcaster.broadcast(json.dumps({
-            "type": "system",
-            "message": f"Agent crashed: {e}"
-        })))
+        _broadcast_sync("system", f"Agent error: {e}")
+        return
+    
+    # Step 3: Commit and push
+    if branch_name:
+        try:
+            subprocess.run(["git", "add", "."], cwd=directory, capture_output=True, timeout=10)
+            subprocess.run(
+                ["git", "commit", "-m", f"fix: auto-fix from REVI agent\n\n{instruction[:200]}"],
+                cwd=directory, capture_output=True, timeout=10
+            )
+            subprocess.run(["git", "push", "origin", branch_name], cwd=directory, capture_output=True, timeout=30)
+            _broadcast_sync("system", f"Pushed fix to branch: {branch_name}")
+        except Exception as e:
+            _broadcast_sync("system", f"Git push warning: {e}")
 
 @app.post("/webhook/github")
 async def github_webhook(request: Request, background_tasks: BackgroundTasks):
-    payload = await request.json()
-    action = payload.get("action")
+    """
+    GitHub Webhook receiver.
+    Triggers:
+      - Issue opened/labeled with 'revi-fix' -> spawns agent to fix it.
+      - Pull request opened -> spawns agent to review it.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"status": "error", "message": "Invalid JSON payload"}, status_code=400)
     
+    action = payload.get("action", "")
+    
+    # --- Issue Fix Trigger ---
     if "issue" in payload and action in ["opened", "labeled"]:
         issue = payload["issue"]
-        labels = [l["name"] for l in issue.get("labels", [])]
+        labels = [l.get("name", "") for l in issue.get("labels", [])]
         
         if "revi-fix" in labels:
-            instruction = f"Fix GitHub Issue #{issue['number']}: {issue['title']}\n\nDescription:\n{issue['body']}"
-            background_tasks.add_task(run_revi_agent, instruction)
-            return {"status": "accepted", "message": "REVI agent started to fix issue."}
+            issue_num = issue.get("number", 0)
+            title = issue.get("title", "untitled")
+            body = issue.get("body", "") or ""
+            branch_name = f"revi/fix-issue-{issue_num}"
+            instruction = f"Fix GitHub Issue #{issue_num}: {title}\n\nDescription:\n{body}"
             
+            background_tasks.add_task(run_revi_agent, instruction, branch_name)
+            return {"status": "accepted", "trigger": "issue", "issue": issue_num, "branch": branch_name}
+    
+    # --- Pull Request Review Trigger ---
+    if "pull_request" in payload and action in ["opened", "synchronize"]:
+        pr = payload["pull_request"]
+        pr_num = pr.get("number", 0)
+        title = pr.get("title", "")
+        body = pr.get("body", "") or ""
+        diff_url = pr.get("diff_url", "")
+        
+        instruction = (
+            f"Review Pull Request #{pr_num}: {title}\n\n"
+            f"Description:\n{body}\n\n"
+            f"Diff URL: {diff_url}\n\n"
+            f"Please review the code changes, identify bugs, security issues, "
+            f"and suggest improvements. Focus on correctness and edge cases."
+        )
+        background_tasks.add_task(run_revi_agent, instruction)
+        return {"status": "accepted", "trigger": "pull_request", "pr": pr_num}
+    
     return {"status": "ignored"}
+
+@app.get("/api/status")
+async def get_status():
+    """Health check endpoint for monitoring."""
+    return {
+        "status": "running",
+        "project": os.getenv("FOLDER_PATH", "."),
+        "provider": os.getenv("PROVIDER", "groq"),
+        "model": os.getenv("MODEL", "unknown"),
+        "connected_clients": len(broadcaster.active_connections)
+    }
 
 def start_server():
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="error")
+

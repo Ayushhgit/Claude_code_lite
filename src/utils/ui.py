@@ -15,15 +15,18 @@ if sys.platform == "win32":
 console = Console(force_terminal=True)
 
 def broadcast_sync(msg_type: str, message: str):
-    """Synchronously broadcast a message to the dashboard WebSockets."""
+    """
+    Thread-safe, crash-proof broadcast to Dashboard WebSockets.
+    This function NEVER raises — if the dashboard isn't running, it's a no-op.
+    """
     try:
         from server.broadcaster import broadcaster
-        loop = asyncio.get_event_loop()
-    except Exception:
-        return
+        if not broadcaster.active_connections:
+            return  # No clients connected, skip entirely
         
-    if loop.is_running():
-        # Fire and forget
-        loop.create_task(broadcaster.broadcast(json.dumps({"type": msg_type, "message": message})))
-    else:
-        loop.run_until_complete(broadcaster.broadcast(json.dumps({"type": msg_type, "message": message})))
+        payload = json.dumps({"type": msg_type, "message": message})
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(broadcaster.broadcast(payload))
+        loop.close()
+    except Exception:
+        pass  # Dashboard not running or import failed — totally fine
