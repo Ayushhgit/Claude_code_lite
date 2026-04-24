@@ -15,7 +15,7 @@
 
 ## Overview
 
-**REVI** (formerly *kinda_claude_code*) is an advanced, autonomous AI coding agent designed to operate with the systematic rigor of a Senior Software Engineer. Unlike standard chatbots or basic coding assistants that just generate code snippets, REVI takes ownership of complete development cycles: it understands the codebase, plans architecture, executes module-by-module, automatically verifies its own work, and commits the changes.
+**REVI** is an advanced, autonomous AI coding agent designed to operate with the systematic rigor of a Senior Software Engineer. Unlike standard chatbots or basic coding assistants that just generate code snippets, REVI takes ownership of complete development cycles: it understands the codebase, plans architecture, executes module-by-module, automatically verifies its own work, and commits the changes.
 
 Powered by Groq for high-speed inference and built with a robust multi-agent methodology, REVI handles complex refactoring, feature implementation, and codebase exploration autonomously.
 
