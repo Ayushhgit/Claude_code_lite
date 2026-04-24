@@ -51,7 +51,7 @@ def _generate_groq(messages, tools):
             if any(code in error_str for code in ['429', 'rate_limit', 'rate limit', '503', '502', '500']):
                 if attempt < MAX_RETRIES:
                     wait = min(2 ** attempt * 2, 60)
-                    print(f"  ⏳ Groq rate limited (attempt {attempt+1}/{MAX_RETRIES}). Waiting {wait}s...")
+                    print(f" Groq rate limited (attempt {attempt+1}/{MAX_RETRIES}). Waiting {wait}s...")
                     time.sleep(wait)
                     continue
             raise
@@ -94,7 +94,7 @@ def _generate_gemini(messages, tools):
             if any(code in error_str for code in ['429', 'rate_limit', 'rate limit', '503', '502', '500']):
                 if attempt < MAX_RETRIES:
                     wait = min(2 ** attempt * 2, 60)
-                    print(f"  ⏳ Gemini rate limited (attempt {attempt+1}/{MAX_RETRIES}). Waiting {wait}s...")
+                    print(f" Gemini rate limited (attempt {attempt+1}/{MAX_RETRIES}). Waiting {wait}s...")
                     time.sleep(wait)
                     continue
             raise

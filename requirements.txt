@@ -10,3 +10,7 @@ arxiv
 prompt_toolkit
 ruff
 docker
+networkx
+fastapi
+uvicorn
+websockets

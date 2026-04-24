@@ -1474,6 +1474,20 @@ TOOLS_SCHEMA = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_graph",
+            "description": "Query the Semantic Code Graph to find what depends on a specific function, class, or file. Use this for zero-regression refactoring to know exactly what will break if you change a component.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query_node_name": {"type": "string", "description": "The exact name of the function, class, or file to query."}
+                },
+                "required": ["query_node_name"]
+            }
+        }
     }
 ]
 
@@ -1497,6 +1511,7 @@ def execute_tool(tool_name: str, args: dict) -> str:
         'sandbox_status': '🐳',
         'scan_codebase': '🧠',
         'verify_project': '🔍',
+        'query_graph': '🕸️',
     }
     icon = TOOL_ICONS.get(tool_name, '🔧')
     
@@ -1602,5 +1617,8 @@ def execute_tool(tool_name: str, args: dict) -> str:
     elif tool_name == "verify_project":
         from core.verify import verify_project_tool
         return verify_project_tool(args.get("directory", ""))
+    elif tool_name == "query_graph":
+        from core.semantic_graph import query_graph_tool
+        return query_graph_tool(args.get("query_node_name", ""))
     else:
         return f"Error: Unknown tool {tool_name}"

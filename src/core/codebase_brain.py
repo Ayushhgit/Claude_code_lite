@@ -629,6 +629,15 @@ def scan_codebase_tool(directory: str = "") -> str:
         index_codebase(directory)
     except Exception:
         pass
+        
+    # Trigger Semantic Graph construction
+    try:
+        from core.semantic_graph import build_semantic_graph, save_graph
+        console.print("  [dim]  -> Building Semantic Code Graph (RAG 2.0)...[/dim]")
+        G = build_semantic_graph(directory)
+        save_graph(G, directory)
+    except Exception as e:
+        console.print(f"  [dim]  -> Semantic Graph warning: {e}[/dim]")
 
     stats = brain.get("stats", {})
     summary = brain.get("summary", "")

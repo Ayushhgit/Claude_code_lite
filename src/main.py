@@ -344,6 +344,15 @@ def main():
                 console.print(f"[red]Error: {e}[/red]")
             continue
         
+        if cmd == "/dashboard" or cmd == "/daemon":
+            console.print("[bold green]🚀 Starting REVI Command Center & CI/CD Webhook server at http://localhost:8000[/bold green]")
+            import threading
+            from server.app import start_server
+            threading.Thread(target=start_server, daemon=True).start()
+            import webbrowser
+            webbrowser.open("http://localhost:8000")
+            continue
+        
         if cmd == "/plan":
             try:
                 from core.planner import load_plan, format_plan_for_context

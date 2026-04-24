@@ -322,6 +322,8 @@ def call_llm_with_tools(messages):
                         border_style="dim",
                         padding=(0, 1)
                     ))
+                    from utils.ui import broadcast_sync
+                    broadcast_sync("thought", think_match.group(1).strip())
                     
             messages.append({
                 "role": "assistant",
@@ -343,6 +345,7 @@ def call_llm_with_tools(messages):
                 try:
                     raw_args = tool_call.function.arguments
                     args = _safe_parse_json(raw_args)
+                    broadcast_sync("tool", f"Executing: {tool_name}({raw_args})")
                     tool_result = execute_tool(tool_name, args)
                 except Exception as e:
                     tool_result = f"Error executing tool (likely invalid JSON arguments): {e}"
