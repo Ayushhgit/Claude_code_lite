@@ -217,6 +217,14 @@ def _select_tools_for_intent(messages):
         # v2: Verification
         "verify":     ["verify_project", "lint_check", "run_tests"],
         "validate":   ["verify_project"],
+        # GitHub integration
+        "github":     ["github_comment", "github_pr_review"],
+        "pr":         ["github_pr_review", "github_comment"],
+        "pull request": ["github_pr_review", "github_comment"],
+        "review":     ["github_pr_review"],
+        "approve":    ["github_pr_review"],
+        "comment":    ["github_comment", "github_pr_review"],
+        "issue":      ["github_comment"],
     }
     
     # Collect extra tools based on keywords

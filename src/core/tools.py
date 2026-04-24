@@ -1656,9 +1656,9 @@ def execute_tool(tool_name: str, args: dict) -> str:
         from core.semantic_graph import query_graph_tool
         return query_graph_tool(args.get("query_node_name", ""))
     elif tool_name == "github_comment":
-        return github_comment_tool(args.get("repo", ""), args.get("issue_or_pr_number", 0), args.get("comment_body", ""))
+        return github_comment_tool(args.get("repo", ""), int(args.get("issue_or_pr_number", 0)), args.get("comment_body", ""))
     elif tool_name == "github_pr_review":
-        return github_pr_review_tool(args.get("repo", ""), args.get("pr_number", 0), args.get("body", ""), args.get("event", "COMMENT"))
+        return github_pr_review_tool(args.get("repo", ""), int(args.get("pr_number", 0)), args.get("body", ""), args.get("event", "COMMENT"))
     else:
         return f"Error: Unknown tool {tool_name}"
 
@@ -1666,6 +1666,13 @@ def github_comment_tool(repo: str, issue_or_pr_number: int, comment_body: str) -
     """Tool: Post a comment on a GitHub Issue or Pull Request.
     Requires GITHUB_TOKEN environment variable.
     """
+    if not repo or "/" not in repo:
+        return "Error: repo must be 'owner/repo' format."
+    if not issue_or_pr_number or issue_or_pr_number <= 0:
+        return "Error: issue_or_pr_number must be a positive integer."
+    if not comment_body or not comment_body.strip():
+        return "Error: comment_body cannot be empty."
+
     token = os.getenv("GITHUB_TOKEN")
     if not token:
         return "Error: GITHUB_TOKEN environment variable is not set."
@@ -1690,13 +1697,20 @@ def github_pr_review_tool(repo: str, pr_number: int, body: str, event: str = "CO
     """Tool: Submit a formal review on a GitHub Pull Request.
     Requires GITHUB_TOKEN environment variable.
     """
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        return "Error: GITHUB_TOKEN environment variable is not set."
+    if not repo or "/" not in repo:
+        return "Error: repo must be 'owner/repo' format."
+    if not pr_number or pr_number <= 0:
+        return "Error: pr_number must be a positive integer."
 
     valid_events = {"APPROVE", "REQUEST_CHANGES", "COMMENT"}
     if event not in valid_events:
         return f"Error: event must be one of {valid_events}, got '{event}'"
+    if event == "REQUEST_CHANGES" and not body.strip():
+        return "Error: body cannot be empty when event is REQUEST_CHANGES."
+
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        return "Error: GITHUB_TOKEN environment variable is not set."
 
     url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews"
     headers = {
