@@ -8,3 +8,5 @@ beautifulsoup4
 rich
 arxiv
 prompt_toolkit
+ruff
+docker

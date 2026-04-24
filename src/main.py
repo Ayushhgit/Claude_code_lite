@@ -43,6 +43,11 @@ TIPS = [
     "Tip: Say 'f' in the feedback prompt to auto-fix the last response",
     "Tip: The agent auto-heals broken code when it detects errors",
     "Tip: Use /diff to see what the agent changed before committing",
+    "Tip: Use /map to see the full AST architecture of your codebase",
+    "Tip: The agent auto-plans complex tasks using the Architect persona",
+    "Tip: Use /tasks to see what the agent is currently working on",
+    "Tip: The Reviewer agent validates code quality on complex tasks",
+    "Tip: Use /sandbox to check Docker sandboxing status",
 ]
 
 GREETINGS = [
@@ -80,6 +85,10 @@ HELP_TEXT = """
 | `/clear`    | Reset context window                     |
 | `/compact`  | Force-compact context to save tokens     |
 | `/status`   | Show session stats                       |
+| `/map`      | Show AST-based codebase architecture     |
+| `/tasks`    | Show current task scratchpad             |
+| `/plan`     | Show the active execution plan           |
+| `/sandbox`  | Show Docker sandbox status               |
 | `/undo`     | Git undo last commit                     |
 | `/diff`     | Show uncommitted git changes             |
 | `/commit`   | Auto-commit all changes                  |
@@ -92,6 +101,10 @@ SLASH_COMMANDS = {
     "/clear":   "Reset context window and start fresh",
     "/compact": "Force-compact context to save tokens",
     "/status":  "Show session stats (turns, tokens, git branch)",
+    "/map":     "Show AST-based codebase architecture map",
+    "/tasks":   "Show current task scratchpad",
+    "/plan":    "Show the active execution plan",
+    "/sandbox": "Show Docker sandbox status",
     "/undo":    "Git soft-reset the last commit",
     "/diff":    "Show uncommitted git changes",
     "/commit":  "Auto-commit all current changes",
@@ -152,7 +165,7 @@ def _animated_startup(path, project_name, git_branch):
         ("📂 Detecting project", f"{project_name}"),
         ("🔗 Checking git", f"{git_branch}"),
         ("🧠 Loading memory", ".agent_memory.md"),
-        ("🔧 Initializing tools", "24 tools ready"),
+        ("🔧 Initializing tools", "38 tools ready"),
     ]
     
     for label, value in steps:
@@ -293,6 +306,46 @@ def main():
             git_subcmd = instruction.strip()[5:]
             output = _git_cmd(path, git_subcmd)
             console.print(Panel(output, title=f"[bold yellow]📌 git {git_subcmd}", border_style="yellow"))
+            continue
+        
+        if cmd == "/map":
+            console.print("  [dim]🧬 Building AST map...[/dim]")
+            try:
+                from core.repo_map import get_ast_repo_map
+                ast_map = get_ast_repo_map(path)
+                console.print(Panel(ast_map[:3000], title="[bold green]🧬 AST Repository Map", border_style="green"))
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+            continue
+        
+        if cmd == "/tasks":
+            try:
+                from core.scratchpad import get_tasks_tool
+                tasks = get_tasks_tool()
+                console.print(Panel(tasks, title="[bold cyan]📋 Task Scratchpad", border_style="cyan"))
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+            continue
+        
+        if cmd == "/plan":
+            try:
+                from core.planner import load_plan, format_plan_for_context
+                plan = load_plan(path)
+                if plan:
+                    console.print(Panel(format_plan_for_context(plan), title="[bold magenta]🏗️ Active Plan", border_style="magenta"))
+                else:
+                    console.print("[dim]No active plan. The Architect agent creates plans for complex tasks automatically.[/dim]")
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+            continue
+        
+        if cmd == "/sandbox":
+            try:
+                from core.sandbox import sandbox_status_tool
+                status = sandbox_status_tool()
+                console.print(Panel(status, title="[bold blue]🐳 Sandbox Status", border_style="blue"))
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
             continue
         
         # ── Normal Agent Turn ──

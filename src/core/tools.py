@@ -1242,6 +1242,210 @@ TOOLS_SCHEMA = [
                 "required": ["query"]
             }
         }
+    },
+    # ══════════════════════════════════════════════════════════════
+    # NEW v2 TOOLS — Repository Mapping, LSP Navigation, Self-Heal,
+    #                Task Tracking, Sandbox
+    # ══════════════════════════════════════════════════════════════
+    {
+        "type": "function",
+        "function": {
+            "name": "get_ast_map",
+            "description": "Generate an AST-based architectural map of the entire codebase. Shows every file's classes, methods, function signatures, and imports WITHOUT the code bodies. Extremely token-efficient for understanding large codebases at a glance. Cached for performance.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "directory": {"type": "string", "description": "Root directory to map."},
+                    "verbose": {"type": "boolean", "description": "If true, include docstrings and decorators."}
+                },
+                "required": ["directory"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_references",
+            "description": "Find ALL usages of a symbol (function, class, variable) across the entire codebase. Like an IDE's 'Find All References'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "The symbol name to search for."},
+                    "directory": {"type": "string", "description": "Optional root directory."}
+                },
+                "required": ["symbol"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "go_to_definition",
+            "description": "Find where a function, class, or variable is DEFINED. Like an IDE's 'Go to Definition'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "The symbol to find the definition of."},
+                    "directory": {"type": "string", "description": "Optional root directory."}
+                },
+                "required": ["symbol"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_implementations",
+            "description": "Find all subclasses or implementations of a class/interface across the codebase.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "class_name": {"type": "string", "description": "The class/interface name."},
+                    "directory": {"type": "string", "description": "Optional root directory."}
+                },
+                "required": ["class_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_call_graph",
+            "description": "Find all functions that CALL a given function. Useful for impact analysis before refactoring.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "function_name": {"type": "string", "description": "The function name."},
+                    "directory": {"type": "string", "description": "Optional root directory."}
+                },
+                "required": ["function_name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lint_check",
+            "description": "Run linter (ruff) on a Python file and return all lint errors with line numbers and codes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {"type": "string", "description": "Path to the file to lint."}
+                },
+                "required": ["filepath"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_tests",
+            "description": "Run the project's test suite (auto-detects pytest/npm test). Returns pass/fail counts and error details.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "test_command": {"type": "string", "description": "Optional custom test command. Auto-detected if not provided."}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_task",
+            "description": "Create a task in the persistent scratchpad. Use this to track multi-step work and stay oriented.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Short task title."},
+                    "description": {"type": "string", "description": "Optional detailed description."},
+                    "priority": {"type": "string", "description": "Priority: high, normal, or low."}
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_task",
+            "description": "Mark a task as complete in the scratchpad.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "integer", "description": "The task ID to mark complete."}
+                },
+                "required": ["task_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_tasks",
+            "description": "View all current tasks and their status from the scratchpad.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_subtask",
+            "description": "Add a subtask to an existing task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {"type": "integer", "description": "Parent task ID."},
+                    "subtask": {"type": "string", "description": "Subtask description."}
+                },
+                "required": ["task_id", "subtask"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_note",
+            "description": "Add a free-form note to the scratchpad for future reference.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "note": {"type": "string", "description": "The note text."}
+                },
+                "required": ["note"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_goal",
+            "description": "Set the high-level session goal. This is displayed in the scratchpad and helps maintain focus.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal": {"type": "string", "description": "The session goal."}
+                },
+                "required": ["goal"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sandbox_status",
+            "description": "Check the Docker sandbox status (enabled/disabled, active containers, resource limits).",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
     }
 ]
 
@@ -1256,6 +1460,13 @@ def execute_tool(tool_name: str, args: dict) -> str:
         'get_file_symbols': '🔬', 'ask_human': '💬', 'semantic_replace': '🔧',
         'index_codebase': '📇', 'semantic_search': '🧠', 'arxiv_search': '📚',
         'git_command': '📌', 'batch_edit_files': '📦', 'codebase_search': '🔮',
+        # New tools from v2 features
+        'get_ast_map': '🧬', 'find_references': '🔗', 'go_to_definition': '🎯',
+        'find_implementations': '🏗️', 'get_call_graph': '📊',
+        'lint_check': '🩺', 'run_tests': '🧪',
+        'create_task': '📋', 'complete_task': '✅', 'get_tasks': '📝',
+        'add_subtask': '📎', 'add_note': '🗒️', 'set_goal': '🎯',
+        'sandbox_status': '🐳',
     }
     icon = TOOL_ICONS.get(tool_name, '🔧')
     
@@ -1312,5 +1523,48 @@ def execute_tool(tool_name: str, args: dict) -> str:
         return batch_edit_files_tool(args.get("edits", []))
     elif tool_name == "codebase_search":
         return codebase_search_tool(args.get("query", ""), args.get("regex"), args.get("directory"))
+    # ── New v2 tools ──
+    elif tool_name == "get_ast_map":
+        from core.repo_map import get_ast_repo_map
+        return get_ast_repo_map(args.get("directory", ""), args.get("verbose", False))
+    elif tool_name == "find_references":
+        from core.lsp_navigator import find_references
+        return find_references(args.get("symbol", ""), args.get("directory"))
+    elif tool_name == "go_to_definition":
+        from core.lsp_navigator import go_to_definition
+        return go_to_definition(args.get("symbol", ""), args.get("directory"))
+    elif tool_name == "find_implementations":
+        from core.lsp_navigator import find_implementations
+        return find_implementations(args.get("class_name", ""), args.get("directory"))
+    elif tool_name == "get_call_graph":
+        from core.lsp_navigator import get_call_graph
+        return get_call_graph(args.get("function_name", ""), args.get("directory"))
+    elif tool_name == "lint_check":
+        from core.self_heal import lint_check_tool
+        return lint_check_tool(args.get("filepath", ""))
+    elif tool_name == "run_tests":
+        from core.self_heal import run_tests_tool
+        return run_tests_tool(args.get("test_command"))
+    elif tool_name == "create_task":
+        from core.scratchpad import create_task_tool
+        return create_task_tool(args.get("title", ""), args.get("description", ""), args.get("priority", "normal"))
+    elif tool_name == "complete_task":
+        from core.scratchpad import complete_task_tool
+        return complete_task_tool(int(args.get("task_id", 0)))
+    elif tool_name == "get_tasks":
+        from core.scratchpad import get_tasks_tool
+        return get_tasks_tool()
+    elif tool_name == "add_subtask":
+        from core.scratchpad import add_subtask_tool
+        return add_subtask_tool(int(args.get("task_id", 0)), args.get("subtask", ""))
+    elif tool_name == "add_note":
+        from core.scratchpad import add_note_tool
+        return add_note_tool(args.get("note", ""))
+    elif tool_name == "set_goal":
+        from core.scratchpad import set_goal_tool
+        return set_goal_tool(args.get("goal", ""))
+    elif tool_name == "sandbox_status":
+        from core.sandbox import sandbox_status_tool
+        return sandbox_status_tool()
     else:
         return f"Error: Unknown tool {tool_name}"

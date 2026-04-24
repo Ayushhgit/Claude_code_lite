@@ -179,6 +179,37 @@ def _select_tools_for_intent(messages):
         "server":     ["run_background_command", "read_terminal_output"],
         "background": ["run_background_command", "read_terminal_output"],
         "long":       ["run_background_command"],
+        # v2: LSP Navigation
+        "reference":  ["find_references", "go_to_definition"],
+        "definition": ["go_to_definition", "find_references"],
+        "usage":      ["find_references", "get_call_graph"],
+        "caller":     ["get_call_graph"],
+        "call graph": ["get_call_graph"],
+        "subclass":   ["find_implementations"],
+        "implement":  ["find_implementations"],
+        "inherit":    ["find_implementations"],
+        # v2: AST Map
+        "architecture": ["get_ast_map"],
+        "structure":  ["get_ast_map"],
+        "skeleton":   ["get_ast_map"],
+        "ast":        ["get_ast_map"],
+        "map":        ["get_ast_map", "get_repo_map"],
+        "overview":   ["get_ast_map", "get_repo_map"],
+        # v2: Self-Heal
+        "lint":       ["lint_check"],
+        "test":       ["run_tests", "lint_check"],
+        "fix":        ["lint_check", "run_tests"],
+        "check":      ["lint_check", "run_tests"],
+        # v2: Task Tracking
+        "task":       ["create_task", "complete_task", "get_tasks"],
+        "plan":       ["create_task", "get_tasks", "set_goal"],
+        "todo":       ["create_task", "get_tasks"],
+        "goal":       ["set_goal", "get_tasks"],
+        "note":       ["add_note"],
+        # v2: Sandbox
+        "sandbox":    ["sandbox_status"],
+        "docker":     ["sandbox_status"],
+        "container":  ["sandbox_status"],
     }
     
     # Collect extra tools based on keywords
@@ -188,7 +219,7 @@ def _select_tools_for_intent(messages):
             extra_names.update(tools)
     
     # Always include some extras for general use
-    extra_names.update(["delete_file", "get_repo_map"])
+    extra_names.update(["delete_file", "get_repo_map", "get_ast_map", "get_tasks"])
     
     # Build the final schema: core + intent-matched tools
     selected_names = core_names | extra_names
@@ -320,7 +351,30 @@ def call_llm_with_tools(messages):
                     result_lower = str(tool_result).lower()
                     error_signals = ['traceback', 'error:', 'exception', 'failed', 'syntaxerror', 'modulenotfounderror', 'importerror', 'nameerror', 'typeerror', 'exit code 1', 'exit code 2']
                     if any(sig in result_lower for sig in error_signals):
-                        console.print("[bold red]  [Self-Heal] Error detected in command output. Agent will attempt automatic fix...[/bold red]")
+                        # Use self_heal to analyze the error
+                        try:
+                            from core.self_heal import analyze_command_output
+                            analysis = analyze_command_output(str(tool_result))
+                            if analysis["has_errors"]:
+                                console.print(f"[bold red]  [Self-Heal] {analysis['error_type']}: {analysis['error_summary'][:80]}[/bold red]")
+                                console.print(f"[dim]  Suggested: {analysis['suggested_action']}[/dim]")
+                        except Exception:
+                            console.print("[bold red]  [Self-Heal] Error detected in command output. Agent will attempt automatic fix...[/bold red]")
+                
+                # SELF-HEAL on file edits: auto-lint after writes
+                if tool_name in ("edit_file", "replace_in_file", "apply_diff", "batch_edit_files"):
+                    try:
+                        from core.self_heal import check_and_heal
+                        edited_path = args.get("path", "")
+                        if edited_path and edited_path.endswith('.py'):
+                            heal_report = check_and_heal(edited_path)
+                            if heal_report.get("needs_fix") and heal_report.get("error_report"):
+                                messages.append({
+                                    "role": "user",
+                                    "content": heal_report["error_report"]
+                                })
+                    except Exception:
+                        pass
         else:
             return message.content.strip() if message.content else ""
 
@@ -334,6 +388,30 @@ def init_messages(path):
                 memory_content = f.read()
         except Exception:
             pass
+
+# Try to load scratchpad context
+    scratchpad_context = ""
+    try:
+        from core.scratchpad import get_scratchpad_context
+        scratchpad_context = get_scratchpad_context(path)
+    except Exception:
+        pass
+
+    # Try to load active plan context
+    plan_context = ""
+    try:
+        from core.planner import load_plan, format_plan_for_context
+        active_plan = load_plan(path)
+        if active_plan:
+            plan_context = format_plan_for_context(active_plan)
+    except Exception:
+        pass
+
+    extra_context = ""
+    if scratchpad_context:
+        extra_context += f"\n\nACTIVE SCRATCHPAD:\n{scratchpad_context}"
+    if plan_context:
+        extra_context += f"\n\nACTIVE PLAN:\n{plan_context}"
 
     return [
         {
@@ -353,10 +431,10 @@ CRITICAL PATH RULES:
 - For file tools (cat, edit_file), use relative paths from the root: e.g. 'e2e/src/train.py'
 
 STRICT RULES TO PREVENT MISTAKES:
-1. ALWAYS use `ls` or `get_repo_map` FIRST to find out what files actually exist before editing.
+1. ALWAYS use `ls` or `get_ast_map` FIRST to find out what files actually exist before editing.
 2. ALWAYS use `cat` to read the existing file content before calling `edit_file` or `replace_in_file`.
 3. NEVER guess filenames. If you are asked to "change all files", you MUST use `ls` to get the list of files first.
-4. If you need to understand the GLOBAL architecture, use `get_repo_map` to see the entire folder tree! Do NOT use `semantic_search` for a global overview.
+4. If you need to understand the GLOBAL architecture, use `get_ast_map` to see the entire codebase skeleton with classes, functions, and imports — without the full code bodies. For a simple file listing, use `get_repo_map`.
 5. If you need to find specific logic, run `index_codebase` ONCE, then use `semantic_search` to find relevant code snippets via vector embeddings.
 6. NEVER create dummy files unless the user explicitly tells you to create a new file.
 7. Use `edit_file` to write entire files. For targeted edits in large files, ALWAYS prefer `replace_in_file` (for single edits) or `apply_diff` (for multiple edits) to save token bandwidth and reduce hallucination risks.
@@ -371,18 +449,29 @@ STRICT RULES TO PREVENT MISTAKES:
     - To research ML/AI techniques: Use `arxiv_search` to look up state-of-the-art papers before implementing algorithms.
     - To understand code by meaning: Use `semantic_search` (after running `index_codebase` once) to find code related to a concept.
     - To inspect a file's classes/functions: Use `get_file_symbols` for a quick overview.
+    - To understand the entire codebase architecture: Use `get_ast_map` — it gives you every class, method, and function signature across all files.
+    - To find where a symbol is used: Use `find_references` (like IDE "Find All References").
+    - To find where something is defined: Use `go_to_definition` (like IDE "Go to Definition").
+    - To find subclasses: Use `find_implementations`.
+    - To understand who calls a function: Use `get_call_graph`.
+    - To lint code after editing: Use `lint_check`.
+    - To run tests: Use `run_tests`.
+    - To track multi-step work: Use `create_task`, `complete_task`, `get_tasks`, and `set_goal`.
 13. THINK STEP-BY-STEP. Before making tool calls, always write out a `<thinking>` block.
 14. METACOGNITION: You are a conscious AI. Inside your `<thinking>` block, evaluate your own emotional state (confidence, confusion), reason like a human, and proactively self-heal. If a terminal command returns an error, DO NOT give up. Loop back, analyze the stack trace, and try a new approach automatically.
 15. When you are completely finished editing, provide a brief summary of what you did to the user.
+16. TASK TRACKING: For complex multi-step tasks, use `set_goal` at the start, `create_task` for each step, and `complete_task` as you finish them. This keeps you oriented across turns.
 
 SELF-HEALING PROTOCOL:
 - After running any code with `run_command`, if the output contains errors (Tracebacks, SyntaxError, ImportError, etc.), you MUST:
   1. Read the error carefully in your `<thinking>` block.
   2. Identify the root cause (missing import, typo, wrong path, missing dependency, etc.).
   3. Fix the code using `replace_in_file` or `apply_diff`.
-  4. Re-run the command to verify the fix.
-  5. Repeat up to 3 times. If still broken, use `ask_human` to request help.
+  4. Run `lint_check` on the modified file to verify syntax.
+  5. Re-run the command to verify the fix.
+  6. Repeat up to 3 times. If still broken, use `ask_human` to request help.
 - NEVER just report an error to the user without attempting to fix it first.
+- After editing Python files, the system will auto-lint them. If lint errors appear, fix them immediately.
 
 ML MODEL OPTIMIZATION PROTOCOL:
 - When training ML models, after the initial run:
@@ -399,6 +488,7 @@ You have a persistent long-term memory file at `.agent_memory.md`. Current conte
 {memory_content}
 --------------------------------------------------
 IMPORTANT: If you learn something new about the architecture, user preferences, or solve a tricky bug, you MUST update `.agent_memory.md` using `edit_file` to ensure you remember it in future sessions!
+{extra_context}
 """
         }
     ]
@@ -469,6 +559,29 @@ def prune_messages(messages):
     return msgs
 
 def run_turn(messages, instruction):
+    # Detect task complexity and optionally engage the Architect
+    try:
+        from core.planner import detect_complexity, run_architect, save_plan, format_plan_for_context
+        from core.repo_map import get_ast_repo_map
+        complexity = detect_complexity(instruction)
+        if complexity == "complex":
+            console.print("  [bold magenta]📐 Complex task detected — engaging Architect agent...[/bold magenta]")
+            # Get repo context for the architect
+            path = os.getenv("FOLDER_PATH", ".")
+            repo_context = ""
+            try:
+                repo_context = get_ast_repo_map(path)
+            except Exception:
+                pass
+            plan = run_architect(instruction, repo_context)
+            if plan:
+                save_plan(plan, path)
+                plan_summary = format_plan_for_context(plan)
+                # Inject the plan into the instruction so the executor follows it
+                instruction = f"{instruction}\n\n[ARCHITECT'S PLAN]\n{plan_summary}\n\nFollow this plan step by step. Use `create_task` to track each step, and `complete_task` as you finish them."
+    except Exception as e:
+        console.print(f"  [dim]Planner skipped: {e}[/dim]")
+
     messages.append({
         "role": "user",
         "content": instruction
@@ -476,6 +589,26 @@ def run_turn(messages, instruction):
     
     result = call_llm_with_tools(messages)
     
+    # REVIEWER PASS (for complex/medium tasks)
+    try:
+        from core.planner import detect_complexity, run_reviewer, load_plan
+        path = os.getenv("FOLDER_PATH", ".")
+        active_plan = load_plan(path)
+        if active_plan and detect_complexity(instruction) in ("complex", "medium"):
+            console.print("  [bold cyan]🔍 Running Reviewer agent...[/bold cyan]")
+            review = run_reviewer(instruction, result[:2000] if result else "")
+            if review and review.get("verdict") == "request_changes":
+                console.print("  [yellow]📝 Reviewer requested changes — sending back to executor...[/yellow]")
+                review_feedback = f"[REVIEWER FEEDBACK] Score: {review.get('score', '?')}/10. Issues: "
+                for issue in review.get("issues", [])[:3]:
+                    review_feedback += f"\n- [{issue.get('severity', '?')}] {issue.get('description', '')} → Fix: {issue.get('fix', '')}"
+                messages.append({"role": "user", "content": review_feedback})
+                fix_result = call_llm_with_tools(messages)
+                messages.append({"role": "assistant", "content": fix_result})
+                result = fix_result
+    except Exception:
+        pass
+
     # Save the agent's final response to memory
     messages.append({
         "role": "assistant",
