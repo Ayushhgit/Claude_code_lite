@@ -60,7 +60,7 @@ poetry.lock
 
 # Groq or project-specific
 groq-cache/
-.kinda_claude/
+.revi/
 
 # Large model files
 *.joblib

@@ -18,7 +18,7 @@ from collections import defaultdict
 
 
 SKIP_DIRS = {
-    '.git', '.kinda_claude', '__pycache__', 'node_modules', '.venv', 'venv',
+    '.git', '.revi', '__pycache__', 'node_modules', '.venv', 'venv',
     'env', 'build', 'dist', '.ruff_cache', '.mypy_cache', '.pytest_cache',
 }
 

@@ -1,0 +1,268 @@
+{
+  "project_root": "test_folder",
+  "project_name": "test_folder",
+  "scanned_at": "2026-04-24T11:23:23.271291",
+  "summary": "test_folder is a Unknown stack project with 13 total files (7 code, 6 other), 0 classes, and 7 functions.",
+  "tech_stack": [],
+  "entry_points": [],
+  "config_files": {
+    "e2e/README.md": "# End\u2011to\u2011End Machine Learning Pipeline\n\nThis repository demonstrates a simple end\u2011to\u2011end machine learning workflow that trains, evaluates, and saves models for two classic datasets: the Boston Housing dataset and the Wine Quality dataset.\n\n## Project Structure\n```\n\u251c\u2500\u2500 e2e/\n\u2502   \u251c\u2500\u2500 README.md            # This file\n\u2502   \u251c\u2500\u2500 requirements.txt     # Python dependencies\n\u2502   \u251c\u2500\u2500 run_all.bat          # Batch script to run everything\n\u2502   \u251c\u2500\u2500 data/                # Raw data (if any)\n\u2502   \u251c\u2500\u2500 models/              # Trained model artifacts\n\u2502   \u2502   \u251c\u2500\u2500 model.joblib\n\u2502   \u2502   \u2514\u2500\u2500 wine_model.joblib\n\u2502   \u2514\u2500\u2500 src/\n\u2502       \u251c\u2500\u2500 __init__.py\n\u2502       \u251c\u2500\u2500 train.py\n\u2502       \u251c\u2500\u2500 train_housing.py\n\u2502       \u251c\u2500\u2500 train_wine.py\n\u2502       \u251c\u2500\u2500 evaluate.py\n\u2502       \u251c\u2500\u2500 evaluate_wine.py\n\u2502       \u2514\u2500\u2500 experiment.py\n```\n\n## Getting Started\n1. **Install dependencies**\n   ```bash\n   pip install -r e2e/requirements.txt\n   ```\n2. **Run the full pipeline**\n   ```bash\n   cd e2e\n   run_all.bat\n   ```\n   This will:\n   - Train the housing model (`train_housing.py`)\n   - Train the wine model (`train_wine.py`)\n   - Evaluate both models and print metrics\n   - Save the trained models to `e2e/models/`\n\n## Scripts Overview\n- `train.py` \u2013 Generic training helper.\n- `train_housing.py` \u2013 Trains a regression model on the Boston Housing dataset.\n- `train_wine.py` \u2013 Trains a classification model on the Wine Quality dataset.\n- `evaluate.py` \u2013 Generic evaluation helper.\n- `evaluate_wine.py` \u2013 Evaluates the wine model.\n- `experiment.py` \u2013 Example script showing how to load a model and make predictions.\n\n## Customization\nFeel free to modify the hyperparameters in `train_housing.py` or `train_wine.py`. The models are saved using `joblib` for easy re\u2011loading.\n\n## License\nMIT \u00a9 2026\n",
+    "e2e/requirements.txt": "# requirements.txt\nscikit-learn\njoblib\n",
+    "e2e/src/__init__.py": ""
+  },
+  "modules": {
+    "e2e/src/evaluate.py": {
+      "purpose": "Module in e2e/ package",
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "docstring": ""
+        }
+      ],
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.load_iris",
+        "sklearn.metrics.accuracy_score",
+        "sklearn.model_selection.train_test_split"
+      ],
+      "exports": [],
+      "globals": [],
+      "lines": 28,
+      "connections": []
+    },
+    "e2e/src/evaluate_wine.py": {
+      "purpose": "Load the saved wine model and evaluate it on the test split of the Wine dataset.\n\nThe model is expec",
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "docstring": "Load the saved wine model and evaluate it on the test split of the Wine dataset.\n\nThe model is expec"
+        }
+      ],
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.load_wine",
+        "sklearn.metrics.accuracy_score",
+        "sklearn.model_selection.train_test_split"
+      ],
+      "exports": [],
+      "globals": [],
+      "lines": 34,
+      "connections": []
+    },
+    "e2e/src/experiment.py": {
+      "purpose": "Module in e2e/ package",
+      "classes": [],
+      "functions": [
+        {
+          "name": "evaluate_model",
+          "args": [
+            "name",
+            "model",
+            "X_train",
+            "X_test",
+            "y_train",
+            "y_test"
+          ],
+          "docstring": ""
+        },
+        {
+          "name": "main",
+          "args": [],
+          "docstring": ""
+        }
+      ],
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.load_iris",
+        "sklearn.model_selection.train_test_split",
+        "sklearn.metrics.accuracy_score",
+        "sklearn.pipeline.make_pipeline",
+        "sklearn.preprocessing.StandardScaler",
+        "sklearn.linear_model.LogisticRegression",
+        "sklearn.svm.SVC",
+        "sklearn.ensemble.RandomForestClassifier",
+        "sklearn.ensemble.GradientBoostingClassifier"
+      ],
+      "exports": [],
+      "globals": [],
+      "lines": 87,
+      "connections": []
+    },
+    "e2e/src/train.py": {
+      "purpose": "Module in e2e/ package",
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "docstring": ""
+        }
+      ],
+      "imports": [
+        "os",
+        "pathlib.Path",
+        "joblib",
+        "sklearn.datasets.load_iris",
+        "sklearn.svm.SVC",
+        "sklearn.preprocessing.StandardScaler",
+        "sklearn.pipeline.make_pipeline",
+        "sklearn.model_selection.train_test_split",
+        "sklearn.metrics.accuracy_score"
+      ],
+      "exports": [],
+      "globals": [],
+      "lines": 42,
+      "connections": []
+    },
+    "e2e/src/train_housing.py": {
+      "purpose": "Module in e2e/ package",
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "docstring": ""
+        }
+      ],
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.fetch_california_housing",
+        "sklearn.model_selection.train_test_split",
+        "sklearn.metrics.mean_squared_error",
+        "sklearn.ensemble.RandomForestRegressor",
+        "sklearn.preprocessing.StandardScaler",
+        "sklearn.pipeline.make_pipeline"
+      ],
+      "exports": [],
+      "globals": [],
+      "lines": 45,
+      "connections": []
+    },
+    "e2e/src/train_wine.py": {
+      "purpose": "Train an SVC model on the Wine dataset and save it.\n\nThe trained model is saved as ``wine_model.jobl",
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "docstring": "Train an SVC model on the Wine dataset and save it.\n\nThe trained model is saved as ``wine_model.jobl"
+        }
+      ],
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.load_wine",
+        "sklearn.svm.SVC",
+        "sklearn.preprocessing.StandardScaler",
+        "sklearn.pipeline.make_pipeline",
+        "sklearn.model_selection.train_test_split",
+        "sklearn.metrics.accuracy_score"
+      ],
+      "exports": [],
+      "globals": [],
+      "lines": 48,
+      "connections": []
+    },
+    "e2e/src/__init__.py": {
+      "purpose": "Module in e2e/ package",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "exports": [],
+      "globals": [],
+      "lines": 1,
+      "connections": []
+    }
+  },
+  "other_files": {
+    ".agent_memory.md": {
+      "size": 471,
+      "size_human": "471B",
+      "type": "text/script",
+      "preview": "--------------------------------------------------\n## Session Summary\n- Removed the os_module_example.py file from the repository.\n- No other changes were made.\n\n- [2026-04-23 22:07] Created/Updated: `.agent_memory.md`\n\n- [2026-04-23 22:12] Replaced snippet in: `train_housing.py`\n- [2026-04-23 22:15] Deleted `e2e/README.md` and added a new README.\n\n--------------------------------------------------\n- [2026-04-23 22:25] Created/Updated: `.agent_memory.md`\n"
+    },
+    "e2e/README.md": {
+      "size": 1943,
+      "size_human": "2KB",
+      "type": "text/script",
+      "preview": "# End\u2011to\u2011End Machine Learning Pipeline\n\nThis repository demonstrates a simple end\u2011to\u2011end machine learning workflow that trains, evaluates, and saves models for two classic datasets: the Boston Housing dataset and the Wine Quality dataset.\n\n## Project Structure\n```\n\u251c\u2500\u2500 e2e/\n\u2502   \u251c\u2500\u2500 README.md            # This file\n\u2502   \u251c\u2500\u2500 requirements.txt     # Python dependencies\n\u2502   \u251c\u2500\u2500 run_all.bat          # Batch script to run everything\n\u2502   \u251c\u2500\u2500 data/                # Raw data (if any)\n\u2502   \u251c\u2500\u2500 models/        "
+    },
+    "e2e/requirements.txt": {
+      "size": 42,
+      "size_human": "42B",
+      "type": "text/script",
+      "preview": "# requirements.txt\nscikit-learn\njoblib\n"
+    },
+    "e2e/run_all.bat": {
+      "size": 320,
+      "size_human": "320B",
+      "type": "text/script",
+      "preview": "@echo off\n\n\nREM Install required packages\n\npip install -r requirements.txt\n\n\nREM Train the Iris model\n\npython src\\train.py\n\nREM Evaluate the Iris model\n\npython src\\evaluate.py\n\n\nREM Train the Wine model\n\npython src\\train_wine.py\n\nREM Evaluate the Wine model\n\npython src\\evaluate_wine.py\n\n\npause"
+    },
+    "e2e/models/model.joblib": {
+      "size": 5461,
+      "size_human": "5KB",
+      "type": "model"
+    },
+    "e2e/models/wine_model.joblib": {
+      "size": 11013,
+      "size_human": "11KB",
+      "type": "model"
+    }
+  },
+  "directories": [
+    {
+      "path": "e2e",
+      "empty": false,
+      "file_count": 3
+    },
+    {
+      "path": "e2e/data",
+      "empty": true,
+      "file_count": 0
+    },
+    {
+      "path": "e2e/models",
+      "empty": false,
+      "file_count": 2
+    },
+    {
+      "path": "e2e/src",
+      "empty": false,
+      "file_count": 7
+    }
+  ],
+  "dependencies": [],
+  "file_tree": [
+    ".agent_memory.md",
+    "e2e/README.md",
+    "e2e/models/model.joblib",
+    "e2e/models/wine_model.joblib",
+    "e2e/requirements.txt",
+    "e2e/run_all.bat",
+    "e2e/src/__init__.py",
+    "e2e/src/evaluate.py",
+    "e2e/src/evaluate_wine.py",
+    "e2e/src/experiment.py",
+    "e2e/src/train.py",
+    "e2e/src/train_housing.py",
+    "e2e/src/train_wine.py"
+  ],
+  "stats": {
+    "total_files": 7,
+    "total_classes": 0,
+    "total_functions": 7,
+    "files_parsed": 7,
+    "files_cached": 0,
+    "scan_time_ms": 13.1,
+    "scan_time_s": 0.07
+  }
+}

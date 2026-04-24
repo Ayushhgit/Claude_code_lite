@@ -2,7 +2,7 @@ import os
 import chromadb
 from chromadb.utils import embedding_functions
 
-CHROMA_DB_PATH = ".kinda_claude/chroma_db"
+CHROMA_DB_PATH = ".revi/chroma_db"
 COLLECTION_NAME = "codebase_index"
 
 # Ensure the DB directory exists

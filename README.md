@@ -158,14 +158,14 @@ Use these commands directly in the REVI prompt for quick actions:
 
 ## Workspace Artifacts
 
-REVI maintains state in a `.kinda_claude/` directory within your project:
+REVI maintains state in a `.revi/` directory within your project:
 - `codebase_brain.md` / `.json`: Deep codebase understanding.
 - `scratchpad.md`: Active task lists and goals.
 - `current_plan.json`: Active multi-step plans.
 - `chroma_db/`: Vector database for semantic code search.
 - `.agent_memory.md` (root level): Persistent user preferences and critical context.
 
-*Note: Add `.kinda_claude/` to your `.gitignore`.*
+*Note: Add `.revi/` to your `.gitignore`.*
 
 ---
 

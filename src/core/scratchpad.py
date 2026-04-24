@@ -5,7 +5,7 @@ Markdown-based task management that the agent uses to stay oriented
 across multiple turns. Prevents the agent from losing track of what
 it has done vs. what it still needs to do.
 
-Stored at .kinda_claude/scratchpad.md — auto-injected into context.
+Stored at .revi/scratchpad.md — auto-injected into context.
 """
 
 import os
@@ -15,7 +15,7 @@ import datetime
 from utils.ui import console
 
 
-SCRATCHPAD_DIR = ".kinda_claude"
+SCRATCHPAD_DIR = ".revi"
 SCRATCHPAD_FILE = "scratchpad.md"
 TASKS_FILE = "tasks.json"
 

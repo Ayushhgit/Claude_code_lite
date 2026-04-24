@@ -12,7 +12,7 @@ a senior developer would. When the user says "scan the codebase", this module:
    - How modules connect to each other (imports, calls)
    - Configuration and environment setup
    - Entry points and main flows
-4. Stores the brain document at .kinda_claude/codebase_brain.md
+4. Stores the brain document at .revi/codebase_brain.md
 5. Auto-injects a compact version into the LLM context on every turn
 
 This means when the user later says "add authentication", the agent already knows:
@@ -41,7 +41,7 @@ def _human_size(size_bytes):
     return f"{size_bytes:.1f}TB"
 
 
-BRAIN_DIR = ".kinda_claude"
+BRAIN_DIR = ".revi"
 BRAIN_FILE = "codebase_brain.md"
 BRAIN_JSON = "codebase_brain.json"
 
@@ -634,7 +634,7 @@ def scan_codebase_tool(directory: str = "") -> str:
     summary = brain.get("summary", "")
 
     result_lines = [
-        "✅ Deep scan complete! Brain document saved to .kinda_claude/codebase_brain.md",
+        "✅ Deep scan complete! Brain document saved to .revi/codebase_brain.md",
         "",
         f"📊 {len(brain.get('file_tree', []))} total files | {stats.get('total_files', 0)} code files | {len(brain.get('other_files', {}))} other files",
         f"📂 {len(brain.get('directories', []))} directories ({len([d for d in brain.get('directories', []) if d.get('empty')])} empty)",

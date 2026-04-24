@@ -175,7 +175,7 @@ def get_repo_map_tool(directory: str) -> str:
     tree_str = f"Repository Map for {directory}:\n"
     for root, dirs, files in os.walk(directory):
         dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', 'build', 'dist', '__pycache__', 'coverage', 'out', 'venv', 'env')]
-        # Skip hidden directories like .git or .kinda_claude
+        # Skip hidden directories like .git or .revi
         dirs[:] = [d for d in dirs if not d.startswith('.')]
         
         level = root.replace(directory, '').count(os.sep)

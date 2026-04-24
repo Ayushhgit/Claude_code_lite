@@ -277,10 +277,10 @@ def run_reviewer(instruction: str, changes_summary: str) -> dict:
 # ─── Plan Persistence ────────────────────────────────────────────────────────
 
 def save_plan(plan: dict, directory: str = None):
-    """Save the plan to .kinda_claude/current_plan.json for persistence."""
+    """Save the plan to .revi/current_plan.json for persistence."""
     if not directory:
         directory = os.getenv("FOLDER_PATH", ".")
-    plan_dir = os.path.join(directory, ".kinda_claude")
+    plan_dir = os.path.join(directory, ".revi")
     os.makedirs(plan_dir, exist_ok=True)
     plan_path = os.path.join(plan_dir, "current_plan.json")
     try:
@@ -294,7 +294,7 @@ def load_plan(directory: str = None) -> dict:
     """Load the current plan if one exists."""
     if not directory:
         directory = os.getenv("FOLDER_PATH", ".")
-    plan_path = os.path.join(directory, ".kinda_claude", "current_plan.json")
+    plan_path = os.path.join(directory, ".revi", "current_plan.json")
     if os.path.exists(plan_path):
         try:
             with open(plan_path, "r", encoding="utf-8") as f:

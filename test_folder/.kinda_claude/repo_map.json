@@ -1,0 +1,203 @@
+{
+  "files": {
+    "e2e/src/evaluate.py": {
+      "language": "python",
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.load_iris",
+        "sklearn.metrics.accuracy_score",
+        "sklearn.model_selection.train_test_split"
+      ],
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "return_type": null,
+          "decorators": [],
+          "is_async": false,
+          "line": 7,
+          "docstring": ""
+        }
+      ],
+      "globals": [],
+      "_mtime": 1776959346.6031249,
+      "_lines": 28
+    },
+    "e2e/src/evaluate_wine.py": {
+      "language": "python",
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.load_wine",
+        "sklearn.metrics.accuracy_score",
+        "sklearn.model_selection.train_test_split"
+      ],
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "return_type": null,
+          "decorators": [],
+          "is_async": false,
+          "line": 7,
+          "docstring": "Load the saved wine model and evaluate it on the test split of the Wine dataset.\n\nThe model is expec"
+        }
+      ],
+      "globals": [],
+      "_mtime": 1776961064.7551258,
+      "_lines": 34
+    },
+    "e2e/src/experiment.py": {
+      "language": "python",
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.load_iris",
+        "sklearn.model_selection.train_test_split",
+        "sklearn.metrics.accuracy_score",
+        "sklearn.pipeline.make_pipeline",
+        "sklearn.preprocessing.StandardScaler",
+        "sklearn.linear_model.LogisticRegression",
+        "sklearn.svm.SVC",
+        "sklearn.ensemble.RandomForestClassifier",
+        "sklearn.ensemble.GradientBoostingClassifier"
+      ],
+      "classes": [],
+      "functions": [
+        {
+          "name": "evaluate_model",
+          "args": [
+            "name",
+            "model",
+            "X_train",
+            "X_test",
+            "y_train",
+            "y_test"
+          ],
+          "return_type": null,
+          "decorators": [],
+          "is_async": false,
+          "line": 14,
+          "docstring": ""
+        },
+        {
+          "name": "main",
+          "args": [],
+          "return_type": null,
+          "decorators": [],
+          "is_async": false,
+          "line": 22,
+          "docstring": ""
+        }
+      ],
+      "globals": [],
+      "_mtime": 1776960183.3758793,
+      "_lines": 87
+    },
+    "e2e/src/train.py": {
+      "language": "python",
+      "imports": [
+        "os",
+        "pathlib.Path",
+        "joblib",
+        "sklearn.datasets.load_iris",
+        "sklearn.svm.SVC",
+        "sklearn.preprocessing.StandardScaler",
+        "sklearn.pipeline.make_pipeline",
+        "sklearn.model_selection.train_test_split",
+        "sklearn.metrics.accuracy_score"
+      ],
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "return_type": null,
+          "decorators": [],
+          "is_async": false,
+          "line": 12,
+          "docstring": ""
+        }
+      ],
+      "globals": [],
+      "_mtime": 1776960069.1408288,
+      "_lines": 42
+    },
+    "e2e/src/train_housing.py": {
+      "language": "python",
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.fetch_california_housing",
+        "sklearn.model_selection.train_test_split",
+        "sklearn.metrics.mean_squared_error",
+        "sklearn.ensemble.RandomForestRegressor",
+        "sklearn.preprocessing.StandardScaler",
+        "sklearn.pipeline.make_pipeline"
+      ],
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "return_type": null,
+          "decorators": [],
+          "is_async": false,
+          "line": 11,
+          "docstring": ""
+        }
+      ],
+      "globals": [],
+      "_mtime": 1776962500.4807358,
+      "_lines": 45
+    },
+    "e2e/src/train_wine.py": {
+      "language": "python",
+      "imports": [
+        "joblib",
+        "pathlib.Path",
+        "sklearn.datasets.load_wine",
+        "sklearn.svm.SVC",
+        "sklearn.preprocessing.StandardScaler",
+        "sklearn.pipeline.make_pipeline",
+        "sklearn.model_selection.train_test_split",
+        "sklearn.metrics.accuracy_score"
+      ],
+      "classes": [],
+      "functions": [
+        {
+          "name": "main",
+          "args": [],
+          "return_type": null,
+          "decorators": [],
+          "is_async": false,
+          "line": 12,
+          "docstring": "Train an SVC model on the Wine dataset and save it.\n\nThe trained model is saved as ``wine_model.jobl"
+        }
+      ],
+      "globals": [],
+      "_mtime": 1776960885.2376566,
+      "_lines": 48
+    },
+    "e2e/src/__init__.py": {
+      "language": "python",
+      "imports": [],
+      "classes": [],
+      "functions": [],
+      "globals": [],
+      "_mtime": 1776959376.9339862,
+      "_lines": 1
+    }
+  },
+  "stats": {
+    "total_files": 7,
+    "total_classes": 0,
+    "total_functions": 7,
+    "files_parsed": 7,
+    "files_cached": 0,
+    "scan_time_ms": 13.1
+  }
+}

@@ -12,11 +12,11 @@ import re
 import json
 import time
 
-CACHE_DIR = ".kinda_claude"
+CACHE_DIR = ".revi"
 CACHE_FILE = "repo_map.json"
 
 SKIP_DIRS = {
-    '.git', '.kinda_claude', '__pycache__', 'node_modules', '.venv', 'venv',
+    '.git', '.revi', '__pycache__', 'node_modules', '.venv', 'venv',
     'env', 'build', 'dist', '.next', 'coverage', 'out', '.ruff_cache',
     '.mypy_cache', '.pytest_cache',
 }

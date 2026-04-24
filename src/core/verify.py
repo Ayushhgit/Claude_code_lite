@@ -28,7 +28,7 @@ from utils.ui import console
 
 
 SKIP_DIRS = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 'env',
-             '.kinda_claude', 'build', 'dist', 'coverage', '.tox', '.mypy_cache'}
+             '.revi', 'build', 'dist', 'coverage', '.tox', '.mypy_cache'}
 
 
 # ─── Individual Checks ──────────────────────────────────────────────────────
