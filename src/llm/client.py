@@ -1,6 +1,6 @@
 import os
-import time
 from dotenv import load_dotenv
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception
 
 load_dotenv()
 
@@ -18,6 +18,16 @@ def generate(messages, tools=None):
     else:
         return _generate_groq(messages, tools)
 
+def _is_rate_limit_error(exception):
+    error_str = str(exception).lower()
+    return any(code in error_str for code in ['429', 'rate_limit', 'rate limit', '503', '502', '500'])
+
+@retry(
+    wait=wait_exponential(multiplier=2, min=2, max=60),
+    stop=stop_after_attempt(6),
+    retry=retry_if_exception(_is_rate_limit_error),
+    reraise=True
+)
 def _generate_groq(messages, tools):
     from groq import Groq
     
@@ -32,32 +42,25 @@ def _generate_groq(messages, tools):
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
     
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                temperature=0.2,
-                messages=messages,
-                **kwargs
-            )
-            message = response.choices[0].message
-            
-            if not tools:
-                return message.content.strip() if message.content else ""
-                
-            return message
-        except Exception as e:
-            error_str = str(e).lower()
-            if any(code in error_str for code in ['429', 'rate_limit', 'rate limit', '503', '502', '500']):
-                if attempt < MAX_RETRIES:
-                    wait = min(2 ** attempt * 2, 60)
-                    print(f" Groq rate limited (attempt {attempt+1}/{MAX_RETRIES}). Waiting {wait}s...")
-                    time.sleep(wait)
-                    continue
-            raise
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0.2,
+        messages=messages,
+        **kwargs
+    )
+    message = response.choices[0].message
     
-    raise Exception("Max retries exceeded for Groq LLM call")
+    if not tools:
+        return message.content.strip() if message.content else ""
+        
+    return message
 
+@retry(
+    wait=wait_exponential(multiplier=2, min=2, max=60),
+    stop=stop_after_attempt(6),
+    retry=retry_if_exception(_is_rate_limit_error),
+    reraise=True
+)
 def _generate_gemini(messages, tools):
     from openai import OpenAI
     
@@ -72,31 +75,16 @@ def _generate_gemini(messages, tools):
     kwargs = {}
     if tools:
         kwargs["tools"] = tools
-        # For Gemini compatibility with OpenAI SDK, tool_choice needs to be explicit or omitted
-        # 'auto' is default in OpenAI, but leaving it omitted usually works best for Gemini OpenAI endpoint
         
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                temperature=0.2,
-                messages=messages,
-                **kwargs
-            )
-            message = response.choices[0].message
-            
-            if not tools:
-                return message.content.strip() if message.content else ""
-                
-            return message
-        except Exception as e:
-            error_str = str(e).lower()
-            if any(code in error_str for code in ['429', 'rate_limit', 'rate limit', '503', '502', '500']):
-                if attempt < MAX_RETRIES:
-                    wait = min(2 ** attempt * 2, 60)
-                    print(f" Gemini rate limited (attempt {attempt+1}/{MAX_RETRIES}). Waiting {wait}s...")
-                    time.sleep(wait)
-                    continue
-            raise
-            
-    raise Exception("Max retries exceeded for Gemini LLM call")
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0.2,
+        messages=messages,
+        **kwargs
+    )
+    message = response.choices[0].message
+    
+    if not tools:
+        return message.content.strip() if message.content else ""
+        
+    return message

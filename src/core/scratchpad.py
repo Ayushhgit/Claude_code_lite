@@ -28,24 +28,33 @@ def _get_tasks_path(directory=None):
     return os.path.join(tasks_dir, TASKS_FILE)
 
 
+from filelock import FileLock
+
 def _load_tasks(directory=None):
     path = _get_tasks_path(directory)
+    lock_path = path + ".lock"
     if os.path.exists(path):
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
+            with FileLock(lock_path, timeout=5):
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
         except (json.JSONDecodeError, OSError):
             pass
+        except Exception:
+            pass # Handle timeout
     return {"tasks": [], "notes": [], "session_goal": ""}
-
 
 def _save_tasks(data, directory=None):
     path = _get_tasks_path(directory)
+    lock_path = path + ".lock"
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        with FileLock(lock_path, timeout=5):
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
     except OSError:
         pass
+    except Exception:
+        pass # Handle timeout
 
 
 # ─── Task Operations ─────────────────────────────────────────────────────────

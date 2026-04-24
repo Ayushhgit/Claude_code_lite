@@ -169,10 +169,30 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
       - Pull request opened -> spawns agent to review it.
     """
     try:
-        payload = await request.json()
+        body_bytes = await request.body()
+        payload = json.loads(body_bytes.decode('utf-8'))
     except Exception:
         return JSONResponse({"status": "error", "message": "Invalid JSON payload"}, status_code=400)
-    
+        
+    # --- Security: HMAC Signature Verification ---
+    webhook_secret = os.getenv("GITHUB_WEBHOOK_SECRET")
+    if webhook_secret:
+        import hmac
+        import hashlib
+        signature_header = request.headers.get("X-Hub-Signature-256")
+        if not signature_header:
+            return JSONResponse({"status": "error", "message": "Missing X-Hub-Signature-256"}, status_code=401)
+            
+        expected_hash = hmac.new(
+            webhook_secret.encode('utf-8'),
+            msg=body_bytes,
+            digestmod=hashlib.sha256
+        ).hexdigest()
+        
+        expected_signature = f"sha256={expected_hash}"
+        if not hmac.compare_digest(signature_header, expected_signature):
+            return JSONResponse({"status": "error", "message": "Invalid HMAC signature"}, status_code=401)
+            
     action = payload.get("action", "")
     
     # --- Issue Fix Trigger ---
