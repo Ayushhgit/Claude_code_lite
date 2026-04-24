@@ -114,10 +114,12 @@ def get_graph_data(directory: str) -> Dict[str, Any]:
             return json.load(f)
     return {}
 
-def query_graph_tool(query_node_name: str, directory: str = ".") -> str:
+def query_graph_tool(query_node_name: str, directory: str = "") -> str:
     """
     Tool interface to find what depends on a specific node (function, class, file).
     """
+    if not directory:
+        directory = os.getenv("FOLDER_PATH", ".")
     path = os.path.join(directory, ".revi", "semantic_graph.json")
     if not os.path.exists(path):
         G = build_semantic_graph(directory)
