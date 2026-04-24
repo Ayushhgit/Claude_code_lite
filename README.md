@@ -17,7 +17,7 @@
 
 **REVI** is an advanced, autonomous AI coding agent designed to operate with the systematic rigor of a Senior Software Engineer. Unlike standard chatbots or basic coding assistants that just generate code snippets, REVI takes ownership of complete development cycles: it understands the codebase, plans architecture, executes module-by-module, automatically verifies its own work, and commits the changes.
 
-Powered by Groq for high-speed inference and built with a robust multi-agent methodology, REVI handles complex refactoring, feature implementation, and codebase exploration autonomously.
+Powered by Groq and Gemini for high-speed inference and built with a robust multi-agent methodology, REVI handles complex refactoring, feature implementation, and codebase exploration autonomously.
 
 ---
 
@@ -28,6 +28,19 @@ REVI doesn't just read files; it *understands* your project.
 - **Deep Scanning**: Processes code (AST parsing), models, data, scripts, configs, and directory structures.
 - **Persistent Knowledge**: Builds a `codebase_brain.md` document and vector index, retaining knowledge across sessions.
 - **Contextual Awareness**: Automatically injects a compact project map into the LLM context, ensuring it always knows where things are without re-reading.
+
+### 🕸️ Semantic Code Graph (RAG 2.0)
+- **Zero-Regression Refactoring**: Maps your entire codebase using `NetworkX` to build a directed graph of function calls, class definitions, and dependencies.
+- **`query_graph` Tool**: When REVI modifies a function, it instantly queries the graph to find every other file or API route that will break as a result, fixing them proactively.
+
+### 🌐 Real-time Web Dashboard
+- **Command Center**: Run `/dashboard` to launch a FastAPI/React web UI.
+- **Live Thought Stream**: Watch the agent's internal thoughts and tool executions stream in real-time via WebSockets.
+- **3D Visualization**: Interactively explore your codebase's Semantic Graph in a 3D-force layout directly in the browser.
+
+### 🐙 CI/CD Daemon Mode
+- **GitHub Webhooks**: Run REVI as a background daemon exposing a webhook endpoint.
+- **Autonomous Fixes**: When a GitHub Issue is opened and tagged with `revi-fix`, REVI wakes up in the background, writes the code to fix the issue, and pushes it automatically.
 
 ### Auto-Verification & Self-Healing
 REVI never hands back broken code. After modifying files, it automatically runs:
@@ -50,9 +63,10 @@ REVI is hard-coded to follow a strict engineering workflow:
 - **Architect**: Engaged for medium/complex tasks. It deeply analyzes the codebase and generates a step-by-step implementation plan.
 - **Reviewer**: Inspects actual `git diffs` of REVI's work and provides critical feedback, forcing corrections before a task is considered complete.
 
-### Extensive Tool Arsenal (38 Tools)
+### Extensive Tool Arsenal (39 Tools)
 Equipped with a massive suite of capabilities, including:
 - **LSP Navigation**: Find references, jump to definitions, get call graphs, find implementations.
+- **Graph Queries**: RAG 2.0 queries to find precise code dependencies to avoid breakages.
 - **File Operations**: Precision editing, batch scaffolding, semantic search.
 - **Execution**: Run shell commands, start background servers, interact with Docker sandboxes.
 - **Memory**: Task scratchpads, goal setting, persistent user preferences.
@@ -106,10 +120,15 @@ graph TD
    ```
 
 4. **Environment Variables:**
-   Create a `.env` file in the root directory:
+   Create a `.env` file in the root directory (see `.env.example`):
    ```env
+   # Select your provider: groq or gemini
+   PROVIDER=groq
+   
    GROQ_API_KEY=your_groq_api_key_here
-   MODEL=llama3-70b-8192  # Or your preferred Groq model
+   GEMINI_API_KEY=your_gemini_api_key_here
+   
+   MODEL=llama3-70b-8192  # Or gemini-2.5-flash
    ```
 
 ---
@@ -139,6 +158,7 @@ Use these commands directly in the REVI prompt for quick actions:
 | Command | Description |
 | :--- | :--- |
 | `/help` | Show all available commands |
+| `/dashboard` | Launch the real-time Web Dashboard (Command Center) in your browser |
 | `/scan` | Deep scan the codebase and build the persistent brain document |
 | `/verify` | Run full project verification (compile, imports, lint, tests) |
 | `/map` | Show the AST-based codebase architecture map |
@@ -160,6 +180,7 @@ Use these commands directly in the REVI prompt for quick actions:
 
 REVI maintains state in a `.revi/` directory within your project:
 - `codebase_brain.md` / `.json`: Deep codebase understanding.
+- `semantic_graph.json`: Directed graph of code dependencies (RAG 2.0).
 - `scratchpad.md`: Active task lists and goals.
 - `current_plan.json`: Active multi-step plans.
 - `chroma_db/`: Vector database for semantic code search.
