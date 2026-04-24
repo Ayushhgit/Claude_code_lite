@@ -248,6 +248,43 @@ def _select_tools_for_intent(messages):
     
     return selected
 
+def _rescue_code_blocks(text):
+    """
+    Parse code blocks from a text-only LLM response.
+    Returns list of (filename, code) pairs where a filename could be detected.
+    Looks for patterns before each ``` block: **file.ext**, `file.ext`, file.ext:
+    """
+    results = []
+    lines = text.split('\n')
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith('```'):
+            # Collect code until closing fence
+            code_lines = []
+            j = i + 1
+            while j < len(lines) and not lines[j].strip().startswith('```'):
+                code_lines.append(lines[j])
+                j += 1
+            code = '\n'.join(code_lines).strip()
+
+            # Try to find a filename in the preceding 3 lines
+            filename = None
+            for k in range(max(0, i - 3), i):
+                prev = lines[k].strip()
+                m = re.match(r'^(?:\*{1,2}|`)?([A-Za-z0-9_\-]+\.[a-zA-Z0-9]+)(?:\*{1,2}|`)?:?\s*$', prev)
+                if m:
+                    filename = m.group(1)
+                    break
+
+            if filename and code:
+                results.append((filename, code))
+            i = j + 1
+        else:
+            i += 1
+    return results
+
+
 def call_llm_with_tools(messages):
     bad_retries = 0
     rate_retries = 0
@@ -294,6 +331,7 @@ def call_llm_with_tools(messages):
                 retry_msg_count -= 1
             
             if bad_retries >= 3:
+                console.print(f"  [bold red][LLM Error full]: {error_msg}[/bold red]")
                 # Last resort: text-only (NO tools)
                 console.print("  [bold yellow]⚠ Falling back to text-only response (context preserved)...[/bold yellow]")
                 try:
@@ -317,7 +355,7 @@ def call_llm_with_tools(messages):
                     console.print(f"  [bold red][LLM Error]: {error_msg[:100]}...[/bold red]")
                     continue
             else:
-                console.print(f"  [bold red][LLM Error, retrying]: {error_msg[:80]}...[/bold red]")
+                console.print(f"  [bold red][LLM Error, retrying]: {error_msg[:300]}[/bold red]")
                 messages.append({
                     "role": "user",
                     "content": f"Your last tool call failed validation. Use ONLY the exact parameter names from the tool schema. Do NOT add extra parameters. Error: {error_msg[:200]}"
@@ -402,7 +440,32 @@ def call_llm_with_tools(messages):
                     except Exception:
                         pass
         else:
-            return message.content.strip() if message.content else ""
+            content = message.content.strip() if message.content else ""
+            # Model outputted code as text instead of using tools — attempt auto-rescue
+            if "```" in content:
+                rescued = _rescue_code_blocks(content)
+                if rescued:
+                    console.print(f"  [bold yellow]⚠ Model skipped tools. Auto-creating {len(rescued)} file(s)...[/bold yellow]")
+                    for filename, code in rescued:
+                        base = os.getenv("FOLDER_PATH", ".")
+                        full_path = os.path.join(base, filename)
+                        execute_tool("edit_file", {"path": full_path, "content": code})
+                        console.print(f"  [green]✓ Created:[/green] {filename}")
+                    return "Files created: " + ", ".join(f for f, _ in rescued)
+                else:
+                    # Can't extract filenames — push correction back and retry once
+                    console.print("  [bold yellow]⚠ Model output code as text instead of using tools. Correcting...[/bold yellow]")
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "You output code as plain text. That does NOT create any files. "
+                            "You MUST use the edit_file or batch_edit_files tool to create the files. "
+                            "Do not write code in your response — call the tool instead."
+                        )
+                    })
+                    continue
+            return content
 
 
 def init_messages(path):
@@ -567,6 +630,16 @@ OTHER TOOLS:
   - `arxiv_search` — Search academic papers.
 
 ═══════════════════════════════════════════════════════════════
+CRITICAL — TOOL-FIRST RULE (NEVER BREAK THIS):
+═══════════════════════════════════════════════════════════════
+NEVER output code, file contents, or implementations as plain text in your response.
+If you need to create or edit a file, you MUST call edit_file or batch_edit_files.
+If you need to run something, you MUST call run_command.
+Outputting code as text does NOTHING — it does not create files. The user cannot see your
+reasoning, only the results of your tool calls. A response with code blocks but no tool
+calls is a FAILURE. Always act through tools, never through text.
+
+═══════════════════════════════════════════════════════════════
 THINKING PROTOCOL:
 ═══════════════════════════════════════════════════════════════
 Before EVERY tool call, write a `<thinking>` block that includes:
@@ -725,14 +798,14 @@ YOUR EXECUTION INSTRUCTIONS:
             try:
                 diff_result = subprocess.run(
                     ["git", "diff", "--stat"], capture_output=True, text=True,
-                    timeout=10, cwd=path
+                    timeout=10, cwd=path, encoding='utf-8', errors='replace'
                 )
                 diff_context = diff_result.stdout[:1500]
-                
+
                 # Also get the actual code diff (abbreviated)
                 full_diff = subprocess.run(
                     ["git", "diff"], capture_output=True, text=True,
-                    timeout=10, cwd=path
+                    timeout=10, cwd=path, encoding='utf-8', errors='replace'
                 )
                 diff_context += "\n\nCode changes:\n" + full_diff.stdout[:2500]
             except Exception:

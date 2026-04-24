@@ -252,7 +252,9 @@ def run_command_tool(command: str) -> str:
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=120,
+            encoding='utf-8',
+            errors='replace'
         )
         output = result.stdout + result.stderr
         if not output.strip():
@@ -527,7 +529,8 @@ def git_command_tool(command: str) -> str:
     try:
         result = subprocess.run(
             f"git {command}", shell=True, cwd=cwd,
-            capture_output=True, text=True, timeout=30
+            capture_output=True, text=True, timeout=30,
+            encoding='utf-8', errors='replace'
         )
         output = (result.stdout + result.stderr).strip()
         return output or f"git {command} executed successfully."
@@ -1516,7 +1519,7 @@ TOOLS_SCHEMA = [
                     "repo": {"type": "string", "description": "Full repo name, e.g. 'owner/repo'"},
                     "pr_number": {"type": "integer", "description": "Pull request number"},
                     "body": {"type": "string", "description": "Review summary text (markdown)"},
-                    "event": {"type": "string", "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"], "description": "Review action: APPROVE, REQUEST_CHANGES, or COMMENT"}
+                    "event": {"type": "string", "description": "Review action. Must be one of: APPROVE, REQUEST_CHANGES, or COMMENT"}
                 },
                 "required": ["repo", "pr_number", "body", "event"]
             }
