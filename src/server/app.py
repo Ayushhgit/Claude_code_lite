@@ -17,77 +17,486 @@ app.add_middleware(
 
 HTML_CONTENT = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>REVI Command Center</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REVI — Command Center</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=JetBrains+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/force-graph"></script>
     <style>
-        body { margin: 0; padding: 0; background-color: #1e1e1e; color: #d4d4d4; font-family: 'Consolas', 'Courier New', monospace; display: flex; height: 100vh; overflow: hidden; }
-        #left-panel { flex: 1; border-right: 1px solid #333; display: flex; flex-direction: column; }
-        #right-panel { flex: 1; display: flex; flex-direction: column; }
-        .header { background: #2d2d2d; padding: 10px; font-weight: bold; border-bottom: 1px solid #333; }
-        #log-window { flex: 1; padding: 10px; overflow-y: auto; background: #000; }
-        .log-entry { margin-bottom: 5px; }
-        .thought { color: #569cd6; }
-        .tool { color: #4ec9b0; }
-        .system { color: #ce9178; }
-        #graph-container { flex: 1; position: relative; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:         #0a0a0f;
+            --surface:    #0d1117;
+            --surface-2:  #161b22;
+            --surface-3:  #1c2128;
+            --border:     #21262d;
+            --blue:       #3b82f6;
+            --blue-dim:   rgba(59,130,246,0.10);
+            --cyan:       #06b6d4;
+            --cyan-dim:   rgba(6,182,212,0.10);
+            --amber:      #f59e0b;
+            --amber-dim:  rgba(245,158,11,0.10);
+            --green:      #10b981;
+            --green-dim:  rgba(16,185,129,0.10);
+            --red:        #ef4444;
+            --purple:     #a855f7;
+            --text-1:     #e6edf3;
+            --text-2:     #8b949e;
+            --text-3:     #484f58;
+            --font-ui:    'Geist', system-ui, -apple-system, sans-serif;
+            --font-mono:  'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+        }
+
+        html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text-1); font-family: var(--font-ui); font-size: 13px; -webkit-font-smoothing: antialiased; }
+
+        #app { display: flex; flex-direction: column; height: 100vh; }
+
+        /* ── Statusbar ── */
+        #statusbar {
+            height: 44px; min-height: 44px;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; padding: 0 16px; gap: 0;
+            position: relative; z-index: 10;
+        }
+        #statusbar::after {
+            content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent 0%, var(--blue) 50%, transparent 100%);
+            opacity: 0; transition: opacity 0.6s;
+        }
+        #statusbar.live::after { opacity: 0.5; }
+
+        .sb-logo {
+            display: flex; align-items: center; gap: 8px;
+            font-weight: 600; font-size: 13px; letter-spacing: 0.1em;
+            color: var(--text-1); text-transform: uppercase;
+            flex-shrink: 0; min-width: 110px;
+        }
+        .sb-logo-mark {
+            width: 22px; height: 22px; border-radius: 5px;
+            background: var(--blue); display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 700; color: #fff; letter-spacing: 0;
+        }
+
+        .sb-center {
+            flex: 1; display: flex; align-items: center; justify-content: center; gap: 18px;
+        }
+        .sb-chip {
+            display: flex; align-items: center; gap: 5px;
+        }
+        .sb-chip-label {
+            font-size: 10px; font-weight: 500; color: var(--text-3);
+            text-transform: uppercase; letter-spacing: 0.07em;
+        }
+        .sb-chip-value {
+            font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+        }
+        .sb-divider { color: var(--border); font-size: 14px; }
+
+        .sb-right {
+            display: flex; align-items: center; gap: 14px;
+            flex-shrink: 0; min-width: 150px; justify-content: flex-end;
+        }
+        .ws-pill {
+            display: flex; align-items: center; gap: 6px;
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 20px; padding: 3px 10px;
+            font-size: 11px; color: var(--text-2);
+        }
+        .ws-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--text-3); transition: background 0.3s, box-shadow 0.3s;
+        }
+        .ws-dot.live { background: var(--green); box-shadow: 0 0 7px var(--green); animation: blink 2s ease-in-out infinite; }
+        .ws-dot.err  { background: var(--red);   box-shadow: 0 0 7px var(--red); }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+        .sb-clients { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+
+        /* ── Panels ── */
+        #main { display: flex; flex: 1; overflow: hidden; }
+
+        .panel { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+        .panel + .panel { border-left: 1px solid var(--border); }
+
+        .panel-header {
+            height: 36px; min-height: 36px;
+            background: var(--surface); border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; padding: 0 12px; gap: 7px;
+        }
+        .ph-dot { width: 5px; height: 5px; border-radius: 50%; }
+        .ph-title {
+            font-size: 10.5px; font-weight: 500; color: var(--text-2);
+            text-transform: uppercase; letter-spacing: 0.09em;
+        }
+        .ph-badge {
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 10px; padding: 1px 7px;
+            font-size: 10px; font-family: var(--font-mono); color: var(--text-3);
+            transition: color .3s, border-color .3s;
+        }
+        .ph-badge.hot { color: var(--blue); border-color: rgba(59,130,246,.3); }
+        .ph-actions { margin-left: auto; display: flex; gap: 4px; }
+        .ph-btn {
+            width: 22px; height: 22px; border-radius: 4px;
+            background: transparent; border: 1px solid var(--border);
+            color: var(--text-2); font-size: 12px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all .15s;
+        }
+        .ph-btn:hover { background: var(--surface-2); border-color: var(--text-3); color: var(--text-1); }
+        .ph-btn.on { background: var(--green-dim); border-color: rgba(16,185,129,.3); color: var(--green); }
+
+        /* ── Log Stream ── */
+        #log-window {
+            flex: 1; overflow-y: auto; background: var(--bg); padding: 6px 0;
+        }
+        #log-window::-webkit-scrollbar { width: 3px; }
+        #log-window::-webkit-scrollbar-track { background: transparent; }
+        #log-window::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .log-entry {
+            display: flex; align-items: baseline; gap: 9px;
+            padding: 2px 14px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.65;
+            border-left: 2px solid transparent;
+            animation: slidein .12s ease-out forwards; opacity: 0; transform: translateX(-3px);
+        }
+        @keyframes slidein { to { opacity:1; transform:none; } }
+        .log-entry:hover { background: var(--surface); }
+
+        .log-entry.thought { border-left-color: var(--blue); }
+        .log-entry.tool    { border-left-color: var(--cyan); }
+        .log-entry.system  { border-left-color: var(--amber); }
+        .log-entry.success { border-left-color: var(--green); }
+        .log-entry.error   { border-left-color: var(--red); }
+
+        .log-ts {
+            color: var(--text-3); font-size: 10px; white-space: nowrap;
+            flex-shrink: 0; width: 56px; font-variant-numeric: tabular-nums;
+        }
+        .log-badge {
+            font-size: 9.5px; font-weight: 500; letter-spacing: .05em;
+            padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
+            text-transform: uppercase; width: 54px; text-align: center;
+        }
+        .log-badge.thought { background: var(--blue-dim);  color: var(--blue);  border: 1px solid rgba(59,130,246,.18); }
+        .log-badge.tool    { background: var(--cyan-dim);  color: var(--cyan);  border: 1px solid rgba(6,182,212,.18); }
+        .log-badge.system  { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,158,11,.18); }
+        .log-badge.success { background: var(--green-dim); color: var(--green); border: 1px solid rgba(16,185,129,.18); }
+        .log-badge.error   { background: rgba(239,68,68,.1); color: var(--red); border: 1px solid rgba(239,68,68,.18); }
+
+        .log-msg { color: var(--text-2); word-break: break-word; white-space: pre-wrap; flex: 1; }
+        .log-entry.thought .log-msg { color: #93c5fd; }
+        .log-entry.tool    .log-msg { color: #67e8f9; }
+        .log-entry.system  .log-msg { color: #fcd34d; }
+        .log-entry.success .log-msg { color: #6ee7b7; }
+        .log-entry.error   .log-msg { color: #fca5a5; }
+
+        .log-placeholder {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100%; gap: 10px; color: var(--text-3); font-family: var(--font-mono); font-size: 12px;
+        }
+        .log-placeholder-icon { font-size: 26px; opacity: .3; }
+
+        /* ── Graph Panel ── */
+        #graph-container {
+            flex: 1; position: relative; overflow: hidden; background: var(--bg);
+        }
+
+        .graph-empty-state {
+            position: absolute; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 12px; color: var(--text-3);
+        }
+        .ges-icon  { font-size: 34px; opacity: .25; }
+        .ges-title { font-size: 13px; font-weight: 500; color: var(--text-2); }
+        .ges-cmd   {
+            font-family: var(--font-mono); font-size: 12px;
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 4px; padding: 4px 11px; color: var(--cyan);
+        }
+
+        #graph-legend {
+            position: absolute; bottom: 14px; left: 14px;
+            background: rgba(13,17,23,.9); backdrop-filter: blur(8px);
+            border: 1px solid var(--border); border-radius: 8px;
+            padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+            z-index: 5; pointer-events: none;
+        }
+        .lg-title { font-size: 9px; font-weight: 500; color: var(--text-3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }
+        .lg-row   { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-2); font-family: var(--font-mono); }
+        .lg-dot   { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+        #node-tooltip {
+            position: absolute; background: rgba(13,17,23,.96); backdrop-filter: blur(8px);
+            border: 1px solid var(--border); border-radius: 6px;
+            padding: 6px 10px; font-size: 11px; font-family: var(--font-mono);
+            color: var(--text-1); pointer-events: none; z-index: 20;
+            display: none; max-width: 240px; word-break: break-all;
+        }
+        .tt-kind { font-size: 9.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
     </style>
 </head>
 <body>
-    <div id="left-panel">
-        <div class="header">⚡ REVI Thought Stream</div>
-        <div id="log-window"></div>
-    </div>
-    <div id="right-panel">
-        <div class="header">🕸️ Semantic Code Graph</div>
-        <div id="graph-container"></div>
+<div id="app">
+
+    <div id="statusbar">
+        <div class="sb-logo">
+            <div class="sb-logo-mark">R</div>
+            REVI
+        </div>
+        <div class="sb-center">
+            <div class="sb-chip">
+                <span class="sb-chip-label">project</span>
+                <span class="sb-chip-value" id="sb-project">—</span>
+            </div>
+            <span class="sb-divider">·</span>
+            <div class="sb-chip">
+                <span class="sb-chip-label">model</span>
+                <span class="sb-chip-value" id="sb-model">—</span>
+            </div>
+            <span class="sb-divider">·</span>
+            <div class="sb-chip">
+                <span class="sb-chip-label">via</span>
+                <span class="sb-chip-value" id="sb-provider">—</span>
+            </div>
+        </div>
+        <div class="sb-right">
+            <div class="ws-pill">
+                <div class="ws-dot" id="ws-dot"></div>
+                <span id="ws-label">connecting</span>
+            </div>
+            <span class="sb-clients"><span id="sb-clients">0</span> clients</span>
+        </div>
     </div>
 
-    <script>
-        // Log Stream
-        const ws = new WebSocket("ws://" + window.location.host + "/ws");
-        const logWindow = document.getElementById("log-window");
-        ws.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            const el = document.createElement("div");
-            el.className = "log-entry " + data.type;
-            el.innerText = `[${data.type.toUpperCase()}] ${data.message}`;
-            logWindow.appendChild(el);
-            logWindow.scrollTop = logWindow.scrollHeight;
+    <div id="main">
+
+        <!-- Thought Stream -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="ph-dot" style="background:var(--blue)"></div>
+                <span class="ph-title">Thought Stream</span>
+                <span class="ph-badge" id="log-count">0</span>
+                <div class="ph-actions">
+                    <button class="ph-btn" id="clear-btn" title="Clear">✕</button>
+                    <button class="ph-btn on" id="scroll-btn" title="Auto-scroll">↓</button>
+                </div>
+            </div>
+            <div id="log-window">
+                <div class="log-placeholder" id="log-placeholder">
+                    <div class="log-placeholder-icon">◎</div>
+                    <span>Waiting for REVI…</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Semantic Graph -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="ph-dot" style="background:var(--cyan)"></div>
+                <span class="ph-title">Semantic Graph</span>
+                <span class="ph-badge" id="node-count"></span>
+                <div class="ph-actions">
+                    <button class="ph-btn" id="graph-refresh" title="Refresh">↺</button>
+                </div>
+            </div>
+            <div id="graph-container">
+                <div class="graph-empty-state" id="graph-empty">
+                    <div class="ges-icon">⬡</div>
+                    <div class="ges-title">No semantic graph yet</div>
+                    <div class="ges-cmd">/scan</div>
+                </div>
+            </div>
+            <div id="graph-legend">
+                <div class="lg-title">Nodes</div>
+                <div class="lg-row"><div class="lg-dot" style="background:#3b82f6"></div>File</div>
+                <div class="lg-row"><div class="lg-dot" style="background:#a855f7"></div>Class</div>
+                <div class="lg-row"><div class="lg-dot" style="background:#06b6d4"></div>Function</div>
+                <div class="lg-row"><div class="lg-dot" style="background:#8b949e"></div>Other</div>
+            </div>
+            <div id="node-tooltip">
+                <div class="tt-kind" id="tt-kind"></div>
+                <div id="tt-name"></div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+(function () {
+    // ── helpers ──────────────────────────────────────────────────────────
+    function ts() {
+        const d = new Date();
+        return [d.getHours(), d.getMinutes(), d.getSeconds()]
+            .map(n => String(n).padStart(2, '0')).join(':');
+    }
+    function esc(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ── log stream ───────────────────────────────────────────────────────
+    const logWin      = document.getElementById('log-window');
+    const placeholder = document.getElementById('log-placeholder');
+    const logCountEl  = document.getElementById('log-count');
+    const scrollBtn   = document.getElementById('scroll-btn');
+    const clearBtn    = document.getElementById('clear-btn');
+    let count = 0, autoScroll = true;
+
+    scrollBtn.addEventListener('click', () => {
+        autoScroll = !autoScroll;
+        scrollBtn.classList.toggle('on', autoScroll);
+        scrollBtn.textContent = autoScroll ? '↓' : '⏸';
+    });
+    clearBtn.addEventListener('click', () => {
+        logWin.innerHTML = '';
+        logWin.appendChild(placeholder);
+        placeholder.style.display = 'flex';
+        count = 0;
+        logCountEl.textContent = '0';
+        logCountEl.classList.remove('hot');
+    });
+
+    function addEntry(type, message) {
+        if (placeholder.style.display !== 'none') placeholder.style.display = 'none';
+        const row = document.createElement('div');
+        row.className = 'log-entry ' + (type || 'system');
+        row.innerHTML =
+            '<span class="log-ts">' + ts() + '</span>' +
+            '<span class="log-badge ' + esc(type) + '">' + esc(type) + '</span>' +
+            '<span class="log-msg">' + esc(message) + '</span>';
+        logWin.appendChild(row);
+        count++;
+        logCountEl.textContent = count;
+        logCountEl.classList.add('hot');
+        if (autoScroll) logWin.scrollTop = logWin.scrollHeight;
+    }
+
+    // ── websocket ────────────────────────────────────────────────────────
+    const wsDot    = document.getElementById('ws-dot');
+    const wsLabel  = document.getElementById('ws-label');
+    const statusbar = document.getElementById('statusbar');
+
+    function setWs(state) {
+        wsDot.className = 'ws-dot ' + state;
+        wsLabel.textContent = {live:'live', err:'error'}[state] || 'connecting';
+        statusbar.classList.toggle('live', state === 'live');
+    }
+
+    function connectWs() {
+        const ws = new WebSocket('ws://' + window.location.host + '/ws');
+        ws.onopen    = () => setWs('live');
+        ws.onclose   = () => { setWs('err'); setTimeout(connectWs, 3000); };
+        ws.onerror   = () => setWs('err');
+        ws.onmessage = (e) => {
+            try { const d = JSON.parse(e.data); addEntry(d.type, d.message); }
+            catch (_) {}
         };
+    }
+    connectWs();
 
-        // Semantic Graph
-        fetch('/api/graph')
-            .then(res => res.json())
-            .then(data => {
-                const container = document.getElementById('graph-container');
-                if (!data.nodes || data.nodes.length === 0) {
-                    container.innerHTML = "<div style='padding:20px;color:#888'>Run `/scan` in the REVI CLI to generate the semantic graph.</div>";
-                    return;
-                }
-                const Graph = ForceGraph()(container)
-                    .graphData({nodes: data.nodes, links: data.links || []})
-                    .width(container.offsetWidth)
-                    .height(container.offsetHeight)
-                    .nodeId('id')
-                    .nodeLabel(n => `${n.id} (${n.type || 'unknown'})`)
-                    .nodeAutoColorBy('type')
-                    .nodeVal(n => n.type === 'file' ? 5 : 2)
-                    .linkDirectionalArrowLength(3.5)
-                    .linkDirectionalArrowRelPos(1)
-                    .linkLabel(l => l.relation || '')
-                    .backgroundColor('#1e1e1e');
-                
-                // Resize on window change
-                window.addEventListener('resize', () => {
-                    Graph.width(container.offsetWidth).height(container.offsetHeight);
+    // ── status polling ───────────────────────────────────────────────────
+    const sbProject  = document.getElementById('sb-project');
+    const sbModel    = document.getElementById('sb-model');
+    const sbProvider = document.getElementById('sb-provider');
+    const sbClients  = document.getElementById('sb-clients');
+
+    function fetchStatus() {
+        fetch('/api/status').then(r => r.json()).then(d => {
+            const p = d.project || '—';
+            sbProject.textContent  = p.length > 30 ? '…' + p.slice(-28) : p;
+            sbModel.textContent    = d.model    || '—';
+            sbProvider.textContent = d.provider || '—';
+            sbClients.textContent  = d.connected_clients ?? 0;
+        }).catch(() => {});
+    }
+    fetchStatus();
+    setInterval(fetchStatus, 5000);
+
+    // ── semantic graph ───────────────────────────────────────────────────
+    const graphCont  = document.getElementById('graph-container');
+    const graphEmpty = document.getElementById('graph-empty');
+    const nodeCountEl = document.getElementById('node-count');
+    const tooltip    = document.getElementById('node-tooltip');
+    const ttKind     = document.getElementById('tt-kind');
+    const ttName     = document.getElementById('tt-name');
+    let graphInst    = null;
+
+    const TYPE_COLOR = {
+        file: '#3b82f6', module: '#3b82f6',
+        class: '#a855f7',
+        function: '#06b6d4', method: '#06b6d4',
+    };
+    function nColor(n) { return TYPE_COLOR[(n.type || '').toLowerCase()] || '#8b949e'; }
+
+    function loadGraph() {
+        fetch('/api/graph').then(r => r.json()).then(data => {
+            if (!data.nodes || data.nodes.length === 0) {
+                graphEmpty.style.display = 'flex';
+                return;
+            }
+            graphEmpty.style.display = 'none';
+            nodeCountEl.textContent  = data.nodes.length + ' nodes';
+
+            if (graphInst) {
+                graphInst.graphData({ nodes: data.nodes, links: data.links || [] });
+                return;
+            }
+
+            graphInst = ForceGraph()(graphCont)
+                .graphData({ nodes: data.nodes, links: data.links || [] })
+                .width(graphCont.offsetWidth)
+                .height(graphCont.offsetHeight)
+                .nodeId('id')
+                .nodeColor(nColor)
+                .nodeVal(n => { const t = (n.type||'').toLowerCase(); return t==='file'||t==='module'?6:3; })
+                .nodeLabel(() => '')
+                .linkColor(() => 'rgba(139,148,158,0.2)')
+                .linkWidth(0.7)
+                .linkDirectionalArrowLength(3)
+                .linkDirectionalArrowRelPos(1)
+                .linkLabel(l => l.relation || '')
+                .backgroundColor('#0a0a0f')
+                .onNodeHover(node => {
+                    if (node) {
+                        ttKind.textContent = node.type || 'node';
+                        ttName.textContent = node.id;
+                        tooltip.style.display = 'block';
+                    } else {
+                        tooltip.style.display = 'none';
+                    }
                 });
-            })
-            .catch(err => {
-                document.getElementById('graph-container').innerHTML = "<div style='padding:20px;color:#f44'>Error loading graph: " + err + "</div>";
+
+            graphCont.addEventListener('mousemove', e => {
+                if (tooltip.style.display !== 'block') return;
+                const r = graphCont.getBoundingClientRect();
+                let x = e.clientX - r.left + 14, y = e.clientY - r.top + 14;
+                if (x + 250 > r.width) x = e.clientX - r.left - 254;
+                tooltip.style.left = x + 'px';
+                tooltip.style.top  = y + 'px';
             });
-    </script>
+
+            window.addEventListener('resize', () => {
+                graphInst.width(graphCont.offsetWidth).height(graphCont.offsetHeight);
+            });
+        }).catch(err => {
+            graphEmpty.innerHTML =
+                '<div class="ges-icon">⚠</div>' +
+                '<div class="ges-title">Failed to load graph</div>' +
+                '<div style="font-size:11px;font-family:var(--font-mono);color:var(--red)">' + esc(String(err)) + '</div>';
+            graphEmpty.style.display = 'flex';
+        });
+    }
+
+    loadGraph();
+    document.getElementById('graph-refresh').addEventListener('click', loadGraph);
+})();
+</script>
 </body>
 </html>
 """

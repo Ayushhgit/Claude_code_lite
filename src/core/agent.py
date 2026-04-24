@@ -10,7 +10,9 @@ from core.tools import TOOLS_SCHEMA, execute_tool
 from utils.ui import console
 
 import groq
+import openai
 import re
+from llm.client import QuotaExhaustedError
 
 # Fun spinner messages that cycle while the LLM is thinking
 SPINNER_MESSAGES = [
@@ -268,13 +270,19 @@ def call_llm_with_tools(messages):
                         messages.pop()
                 retry_msg_count = 0
             bad_retries = 0
-        except groq.RateLimitError:
+        except QuotaExhaustedError as e:
+            provider = os.getenv("PROVIDER", "groq").upper()
+            console.print(f"  [bold red]✗ {provider} quota exhausted.[/bold red] Switch provider or wait for quota reset.")
+            console.print(f"  [dim]Tip: set PROVIDER=groq in .env to use Groq instead.[/dim]")
+            return f"Error: {provider} API quota exhausted. Check billing/plan or switch PROVIDER in .env."
+        except (groq.RateLimitError, openai.RateLimitError):
             wait_time = min(2 ** rate_retries * 5, 60)
-            console.print(f"  [bold yellow]⏳ Rate limited. Waiting {wait_time}s (context preserved)...[/bold yellow]")
+            provider = os.getenv("PROVIDER", "groq").upper()
+            console.print(f"  [bold yellow]⏳ {provider} rate limited. Waiting {wait_time}s...[/bold yellow]")
             time.sleep(wait_time)
             rate_retries += 1
             if rate_retries > 5:
-                return "Error: Repeatedly rate limited by Groq. Please wait a minute and try again."
+                return f"Error: Repeatedly rate limited by {provider}. Wait a minute and try again."
             continue
         except groq.BadRequestError as e:
             error_msg = str(e)

@@ -18,7 +18,17 @@ def generate(messages, tools=None):
     else:
         return _generate_groq(messages, tools)
 
+class QuotaExhaustedError(RuntimeError):
+    """Raised when the API quota is fully exhausted (not a transient rate limit)."""
+    pass
+
+def _is_quota_exhausted(exception):
+    s = str(exception)
+    return ('limit: 0' in s or 'RESOURCE_EXHAUSTED' in s) and ('429' in s or 'quota' in s.lower())
+
 def _is_rate_limit_error(exception):
+    if _is_quota_exhausted(exception):
+        return False  # don't retry quota exhaustion
     error_str = str(exception).lower()
     return any(code in error_str for code in ['429', 'rate_limit', 'rate limit', '503', '502', '500'])
 
@@ -29,6 +39,14 @@ def _is_rate_limit_error(exception):
     reraise=True
 )
 def _generate_groq(messages, tools):
+    try:
+        return __generate_groq(messages, tools)
+    except Exception as e:
+        if _is_quota_exhausted(e):
+            raise QuotaExhaustedError(f"Groq quota exhausted: {e}") from e
+        raise
+
+def __generate_groq(messages, tools):
     from groq import Groq
     
     client = Groq(
@@ -62,6 +80,14 @@ def _generate_groq(messages, tools):
     reraise=True
 )
 def _generate_gemini(messages, tools):
+    try:
+        return __generate_gemini(messages, tools)
+    except Exception as e:
+        if _is_quota_exhausted(e):
+            raise QuotaExhaustedError(f"Gemini quota exhausted: {e}") from e
+        raise
+
+def __generate_gemini(messages, tools):
     from openai import OpenAI
     
     # Gemini provides an OpenAI-compatible endpoint
@@ -70,7 +96,7 @@ def _generate_gemini(messages, tools):
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         max_retries=0,
     )
-    model = os.getenv("MODEL", "gemini-2.5-flash")
+    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     
     kwargs = {}
     if tools:
