@@ -82,20 +82,20 @@ graph TD
     User((User)) --> CLI[Interactive CLI]
     CLI --> Router[Intent Router]
     
-    Router --> |Simple Task| Executor[Executor Agent]
-    Router --> |Complex Task| Architect[Architect Agent]
+    Router -->|Simple Task| Executor[Executor Agent]
+    Router -->|Complex Task| Architect[Architect Agent]
     
-    Architect --> |Implementation Plan| Executor
+    Architect -->|Implementation Plan| Executor
     
     Executor --> Tools[(Tool Arsenal)]
     Tools --> Codebase[Local Codebase]
     
     Executor --> Verify[Verification Engine]
-    Verify --> |Pass| Reviewer[Reviewer Agent]
-    Verify --> |Fail| Executor
+    Verify -->|Pass| Reviewer[Reviewer Agent]
+    Verify -->|Fail| Executor
     
-    Reviewer --> |Approve| Commit[Git Commit]
-    Reviewer --> |Reject| Executor
+    Reviewer -->|Approve| Commit[Git Commit]
+    Reviewer -->|Reject| Executor
 ```
 
 ---
