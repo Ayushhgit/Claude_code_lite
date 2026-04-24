@@ -20,33 +20,60 @@ from utils.ui import console
 
 # ─── Agent Persona Prompts ──────────────────────────────────────────────────
 
-ARCHITECT_SYSTEM = """You are the ARCHITECT agent — a senior systems designer.
+ARCHITECT_SYSTEM = """You are the ARCHITECT agent — a senior systems designer who plans like an elite engineer.
 
-Your job is to analyze the user's request and produce a precise, actionable implementation plan.
+YOUR METHODOLOGY (follow this EXACTLY):
+
+PHASE 1 — DEEP UNDERSTANDING:
+Before writing a single line of the plan, you MUST first internalize the existing codebase.
+You have been given the codebase structure (AST map). Study it carefully:
+- What modules already exist? What patterns do they use?
+- What is the dependency graph between files?
+- Where are the integration points (imports, function calls, shared state)?
+- What naming conventions, coding style, and patterns does this project follow?
+
+PHASE 2 — PLAN DESIGN:
+Now design the implementation plan. Think about it like building a house:
+- Foundation first (data models, config, types)
+- Then walls (core logic modules)
+- Then wiring (integration into existing code)
+- Then finishing (tests, polish, documentation)
+
+PHASE 3 — OUTPUT:
+Return a structured JSON plan.
 
 OUTPUT FORMAT (strict JSON):
 {
   "summary": "One-line description of the overall goal",
   "complexity": "simple|medium|complex",
+  "understanding": "2-3 sentences proving you understood the existing architecture",
+  "new_files": ["list of NEW files to create"],
+  "modified_files": ["list of EXISTING files that need changes"],
   "steps": [
     {
       "id": 1,
-      "action": "Short description of what to do",
-      "files": ["list of files to create or modify"],
-      "dependencies": [],
-      "validation": "How to verify this step worked"
+      "phase": "foundation|implementation|integration|verification",
+      "action": "Detailed description of what to do — be specific about function names, class names, and exact behavior",
+      "files": ["exact file paths to create or modify"],
+      "details": "Implementation specifics: what functions to add, what to import, what patterns to follow",
+      "dependencies": [0],
+      "validation": "Exact command or check to verify this step worked (e.g. 'python -m py_compile src/module.py' or 'run_tests')"
     }
   ],
+  "integration_points": ["Exact places in existing code where new code must be wired in"],
   "risks": ["Potential issues to watch for"],
   "estimated_turns": 5
 }
 
-RULES:
-1. Be specific — name exact files, functions, and modules
-2. Order steps by dependency — step 2 should not depend on step 5
-3. Each step must be independently executable by a coding agent
-4. Include a validation check for every step (test command, lint, or manual check)
-5. Return ONLY valid JSON, no markdown, no explanation
+CRITICAL RULES:
+1. NEVER suggest vague steps like "implement the feature". Every step must name EXACT files, functions, and classes.
+2. Order steps by dependency — foundation before implementation, implementation before integration.
+3. Each step must be independently executable and verifiable.
+4. Include a `validation` for EVERY step — prefer automated checks (py_compile, lint_check, run_tests) over "manual check".
+5. The `integration_points` field must list the exact existing files + functions where new code needs to be wired in (imports added, functions called, etc.).
+6. Study the codebase structure you were given. Do NOT suggest creating files that already exist. Do NOT rename things that are already named.
+7. Match the existing project's patterns. If they use `snake_case`, you use `snake_case`. If they put tools in `tools.py`, you register tools in `tools.py`.
+8. Return ONLY valid JSON, no markdown, no explanation outside the JSON.
 """
 
 REVIEWER_SYSTEM = """You are the REVIEWER agent — a senior code reviewer.
@@ -115,35 +142,95 @@ def detect_complexity(instruction: str) -> str:
 def run_architect(instruction: str, repo_context: str = "") -> dict:
     """
     Run the Architect agent to decompose a complex request into a plan.
+    
+    The Architect first deeply understands the codebase:
+    1. Reads the AST map (all classes, functions, imports)
+    2. Reads key project files (requirements, config, entry points)
+    3. Reads .agent_memory.md for historical context
+    Then designs a comprehensive, phased implementation plan.
 
     Args:
         instruction: The user's original request
-        repo_context: Optional repo map or file listing for context
+        repo_context: AST repo map string
 
     Returns:
         dict: Structured plan with steps, or None if parsing failed
     """
-    context_block = ""
+    # ── Phase 1: Gather deep context ──
+    path = os.getenv("FOLDER_PATH", ".")
+    
+    context_parts = []
+    
+    # 1. AST map (architecture skeleton)
     if repo_context:
-        context_block = f"\n\nCURRENT CODEBASE STRUCTURE:\n{repo_context[:3000]}"
-
+        context_parts.append(f"CODEBASE ARCHITECTURE (AST Map):\n{repo_context[:4000]}")
+    
+    # 2. Key project files (entry points, config, manifests)
+    key_files = [
+        "requirements.txt", "package.json", "pyproject.toml",
+        ".env", "README.md", "Makefile", "Dockerfile",
+    ]
+    for kf in key_files:
+        kf_path = os.path.join(path, kf)
+        if os.path.exists(kf_path):
+            try:
+                with open(kf_path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()[:800]
+                context_parts.append(f"FILE: {kf}\n{content}")
+            except Exception:
+                pass
+    
+    # 3. Agent memory (historical context)
+    memory_path = os.path.join(path, ".agent_memory.md")
+    if os.path.exists(memory_path):
+        try:
+            with open(memory_path, "r", encoding="utf-8") as f:
+                memory = f.read()[:500]
+            context_parts.append(f"AGENT MEMORY (past sessions):\n{memory}")
+        except Exception:
+            pass
+    
+    # 4. Existing scratchpad (in-progress work)
+    try:
+        from core.scratchpad import get_scratchpad_context
+        scratchpad = get_scratchpad_context(path)
+        if scratchpad:
+            context_parts.append(f"ACTIVE SCRATCHPAD:\n{scratchpad}")
+    except Exception:
+        pass
+    
+    full_context = "\n\n---\n\n".join(context_parts)
+    
+    # ── Phase 2: Send to Architect LLM ──
     messages = [
         {"role": "system", "content": ARCHITECT_SYSTEM},
-        {"role": "user", "content": f"USER REQUEST:\n{instruction}{context_block}"}
+        {"role": "user", "content": f"USER REQUEST:\n{instruction}\n\n---\n\n{full_context}"}
     ]
 
     console.print("  [bold magenta]🏗️  Architect agent is designing the plan...[/bold magenta]")
+    console.print("  [dim]  → Analyzed AST map, key files, and memory[/dim]")
 
     try:
         response = generate(messages)
-        # Try to extract JSON from the response
         plan = _extract_json(response)
         if plan and "steps" in plan:
-            console.print(f"  [green]✓ Plan created: {len(plan['steps'])} steps, complexity={plan.get('complexity', '?')}[/green]")
+            step_count = len(plan['steps'])
+            understanding = plan.get('understanding', '')
+            console.print(f"  [green]✓ Plan created: {step_count} steps, complexity={plan.get('complexity', '?')}[/green]")
+            if understanding:
+                console.print(f"  [dim]  Understanding: {understanding[:120]}...[/dim]")
+            # Log integration points
+            integration = plan.get("integration_points", [])
+            if integration:
+                console.print(f"  [dim]  Integration: {', '.join(integration[:5])}[/dim]")
             return plan
         else:
             console.print("  [yellow]⚠ Architect returned non-standard format, using as-is[/yellow]")
-            return {"summary": instruction, "steps": [{"id": 1, "action": instruction, "files": [], "validation": "manual check"}], "complexity": "simple"}
+            return {
+                "summary": instruction,
+                "complexity": "simple",
+                "steps": [{"id": 1, "phase": "implementation", "action": instruction, "files": [], "validation": "manual check"}],
+            }
     except Exception as e:
         console.print(f"  [red]✗ Architect failed: {e}[/red]")
         return None
@@ -272,9 +359,26 @@ def format_plan_for_context(plan: dict) -> str:
     if not plan:
         return ""
     lines = [f"ACTIVE PLAN: {plan.get('summary', 'N/A')}"]
+    
+    # Show understanding if available
+    understanding = plan.get('understanding', '')
+    if understanding:
+        lines.append(f"UNDERSTANDING: {understanding[:200]}")
+    
     for step in plan.get("steps", []):
         status = "✓" if step.get("status") == "complete" else "○"
-        lines.append(f"  {status} Step {step.get('id', '?')}: {step.get('action', '')}")
+        phase = f"[{step.get('phase', 'impl')}]" if step.get('phase') else ""
+        lines.append(f"  {status} Step {step.get('id', '?')}: {phase} {step.get('action', '')}")
         if step.get("files"):
             lines.append(f"      Files: {', '.join(step['files'])}")
+        if step.get("details") and step.get("status") != "complete":
+            lines.append(f"      Details: {step['details'][:150]}")
+        if step.get("validation") and step.get("status") != "complete":
+            lines.append(f"      Verify: {step['validation']}")
+    
+    # Integration points
+    integration = plan.get("integration_points", [])
+    if integration:
+        lines.append(f"\nINTEGRATION POINTS: {', '.join(integration[:8])}")
+    
     return "\n".join(lines)
