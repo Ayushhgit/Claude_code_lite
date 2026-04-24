@@ -2,23 +2,40 @@ import os
 import chromadb
 from chromadb.utils import embedding_functions
 
-CHROMA_DB_PATH = ".revi/chroma_db"
 COLLECTION_NAME = "codebase_index"
 
-# Ensure the DB directory exists
-os.makedirs(CHROMA_DB_PATH, exist_ok=True)
+# Lazy initialization — we defer ChromaDB setup until we know the project path
+_chroma_client = None
+_collection = None
+_sentence_transformer_ef = None
+_current_db_path = None
 
-# Initialize ChromaDB
-chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+def _get_db_path():
+    """Resolve the chroma_db path inside the working project's .revi/ folder."""
+    folder = os.getenv("FOLDER_PATH", ".")
+    return os.path.join(folder, ".revi", "chroma_db")
 
-# We use the default sentence-transformers model from Chroma, which is all-MiniLM-L6-v2
-# It downloads automatically the first time it runs
-sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-
-collection = chroma_client.get_or_create_collection(
-    name=COLLECTION_NAME,
-    embedding_function=sentence_transformer_ef
-)
+def _init_chroma():
+    """Initialize ChromaDB lazily, pointing to FOLDER_PATH/.revi/chroma_db."""
+    global _chroma_client, _collection, _sentence_transformer_ef, _current_db_path
+    
+    db_path = _get_db_path()
+    
+    # Re-initialize if the project path changed (user switched projects)
+    if _chroma_client is not None and _current_db_path == db_path:
+        return _collection
+    
+    os.makedirs(db_path, exist_ok=True)
+    _current_db_path = db_path
+    _chroma_client = chromadb.PersistentClient(path=db_path)
+    _sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name="all-MiniLM-L6-v2"
+    )
+    _collection = _chroma_client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=_sentence_transformer_ef
+    )
+    return _collection
 
 def chunk_file(filepath: str, content: str) -> list:
     """Split a file into smaller chunks for vector storage."""
@@ -78,6 +95,7 @@ def chunk_file(filepath: str, content: str) -> list:
 
 def index_file(filepath: str, content: str):
     """Index a single file into ChromaDB."""
+    collection = _init_chroma()
     chunks = chunk_file(filepath, content)
     if not chunks:
         return
@@ -105,6 +123,7 @@ def index_file(filepath: str, content: str):
 
 def index_codebase(directory: str):
     """Walk a directory and incrementally index all supported files."""
+    collection = _init_chroma()
     files_indexed = 0
     files_skipped = 0
     allowed_exts = (".py", ".js", ".jsx", ".ts", ".tsx", ".html", ".css", ".json")
@@ -137,6 +156,7 @@ def index_codebase(directory: str):
 
 def semantic_search(query: str, n_results: int = 3):
     """Search the vector database for relevant code chunks."""
+    collection = _init_chroma()
     if collection.count() == 0:
         return "The codebase index is empty. Please run index_codebase first."
         
