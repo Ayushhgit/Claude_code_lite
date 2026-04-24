@@ -62,6 +62,7 @@ poetry.lock
 # Groq or project-specific
 groq-cache/
 .revi/
+.claude/
 
 # Large model files
 *.joblib
