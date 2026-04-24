@@ -61,17 +61,31 @@ HTML_CONTENT = """
         fetch('/api/graph')
             .then(res => res.json())
             .then(data => {
-                if (Object.keys(data).length === 0) {
-                    document.getElementById('graph-container').innerHTML = "<div style='padding:20px'>Run `/scan` to generate graph.</div>";
+                const container = document.getElementById('graph-container');
+                if (!data.nodes || data.nodes.length === 0) {
+                    container.innerHTML = "<div style='padding:20px;color:#888'>Run `/scan` in the REVI CLI to generate the semantic graph.</div>";
                     return;
                 }
-                const Graph = ForceGraph()(document.getElementById('graph-container'))
-                    .graphData(data)
+                const Graph = ForceGraph()(container)
+                    .graphData({nodes: data.nodes, links: data.links || []})
+                    .width(container.offsetWidth)
+                    .height(container.offsetHeight)
                     .nodeId('id')
-                    .nodeLabel('id')
+                    .nodeLabel(n => `${n.id} (${n.type || 'unknown'})`)
                     .nodeAutoColorBy('type')
+                    .nodeVal(n => n.type === 'file' ? 5 : 2)
                     .linkDirectionalArrowLength(3.5)
-                    .linkDirectionalArrowRelPos(1);
+                    .linkDirectionalArrowRelPos(1)
+                    .linkLabel(l => l.relation || '')
+                    .backgroundColor('#1e1e1e');
+                
+                // Resize on window change
+                window.addEventListener('resize', () => {
+                    Graph.width(container.offsetWidth).height(container.offsetHeight);
+                });
+            })
+            .catch(err => {
+                document.getElementById('graph-container').innerHTML = "<div style='padding:20px;color:#f44'>Error loading graph: " + err + "</div>";
             });
     </script>
 </body>
@@ -84,11 +98,23 @@ async def get():
 
 @app.get("/api/graph")
 async def get_graph():
+    from dotenv import load_dotenv
+    load_dotenv()
     directory = os.getenv("FOLDER_PATH", ".")
     path = os.path.join(directory, ".revi", "semantic_graph.json")
     if os.path.exists(path):
         with open(path, 'r', encoding='utf-8') as f:
-            return JSONResponse(json.load(f))
+            data = json.load(f)
+        # NetworkX node_link_data uses "edges", but force-graph expects "links"
+        if "edges" in data and "links" not in data:
+            data["links"] = data.pop("edges")
+        # Ensure each link has 'source' and 'target' (NetworkX may use different keys)
+        for link in data.get("links", []):
+            if "source" not in link and "from" in link:
+                link["source"] = link["from"]
+            if "target" not in link and "to" in link:
+                link["target"] = link["to"]
+        return JSONResponse(data)
     return JSONResponse({})
 
 @app.websocket("/ws")
