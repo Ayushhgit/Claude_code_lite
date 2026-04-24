@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+model = os.getenv("MODEL")
 
 def generate(messages, tools=None):
     kwargs = {}
@@ -13,7 +14,7 @@ def generate(messages, tools=None):
         kwargs["tool_choice"] = "auto"
         
     response = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
+        model=model,
         temperature=0.2,
         messages=messages,
         **kwargs
