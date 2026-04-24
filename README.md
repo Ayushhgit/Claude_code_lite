@@ -13,7 +13,7 @@
 
 ---
 
-## 🚀 Overview
+## Overview
 
 **REVI** (formerly *kinda_claude_code*) is an advanced, autonomous AI coding agent designed to operate with the systematic rigor of a Senior Software Engineer. Unlike standard chatbots or basic coding assistants that just generate code snippets, REVI takes ownership of complete development cycles: it understands the codebase, plans architecture, executes module-by-module, automatically verifies its own work, and commits the changes.
 
@@ -21,15 +21,15 @@ Powered by Groq for high-speed inference and built with a robust multi-agent met
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 🧠 The "Codebase Brain"
+### The "Codebase Brain"
 REVI doesn't just read files; it *understands* your project.
 - **Deep Scanning**: Processes code (AST parsing), models, data, scripts, configs, and directory structures.
 - **Persistent Knowledge**: Builds a `codebase_brain.md` document and vector index, retaining knowledge across sessions.
 - **Contextual Awareness**: Automatically injects a compact project map into the LLM context, ensuring it always knows where things are without re-reading.
 
-### 🛡️ Auto-Verification & Self-Healing
+### Auto-Verification & Self-Healing
 REVI never hands back broken code. After modifying files, it automatically runs:
 - **Compile Checks**: Ensures all Python files compile cleanly.
 - **Import Resolution**: Validates that all local imports resolve to actual modules.
@@ -37,7 +37,7 @@ REVI never hands back broken code. After modifying files, it automatically runs:
 - **Test Suite**: Automatically detects and runs project tests.
 - **Self-Healing Loop**: If verification fails, REVI analyzes the traceback and feeds it back into an internal fix loop until the code passes.
 
-### 📋 Systematic 5-Phase Methodology
+### Systematic 5-Phase Methodology
 REVI is hard-coded to follow a strict engineering workflow:
 1. **UNDERSTAND**: Reads AST maps, files, and references before touching anything.
 2. **PLAN**: Engages the internal **Architect Agent** to decompose tasks into structured phases.
@@ -45,12 +45,12 @@ REVI is hard-coded to follow a strict engineering workflow:
 4. **VERIFY**: Runs full project verification (`/verify`).
 5. **COMMIT**: Creates structured, conventional git commits.
 
-### 👥 Multi-Agent Architecture
+### Multi-Agent Architecture
 - **Executor (REVI)**: The primary agent that routes intents and executes tools.
 - **Architect**: Engaged for medium/complex tasks. It deeply analyzes the codebase and generates a step-by-step implementation plan.
 - **Reviewer**: Inspects actual `git diffs` of REVI's work and provides critical feedback, forcing corrections before a task is considered complete.
 
-### 🛠️ Extensive Tool Arsenal (38 Tools)
+### Extensive Tool Arsenal (38 Tools)
 Equipped with a massive suite of capabilities, including:
 - **LSP Navigation**: Find references, jump to definitions, get call graphs, find implementations.
 - **File Operations**: Precision editing, batch scaffolding, semantic search.
@@ -59,7 +59,7 @@ Equipped with a massive suite of capabilities, including:
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 REVI's core loop (`agent.py`) routes user intents to dynamically select relevant tools, optimizing token usage.
 
@@ -86,7 +86,7 @@ graph TD
 
 ---
 
-## 📦 Installation
+## Installation
 
 1. **Clone the repository:**
    ```bash
@@ -114,7 +114,7 @@ graph TD
 
 ---
 
-## 🚀 Usage
+## Usage
 
 Start REVI by running the main interface:
 
@@ -132,7 +132,7 @@ Upon startup, REVI will detect the active project, load its persistent memory, i
 
 ---
 
-## ⌨️ Slash Commands
+## Slash Commands
 
 Use these commands directly in the REVI prompt for quick actions:
 
@@ -156,7 +156,7 @@ Use these commands directly in the REVI prompt for quick actions:
 
 ---
 
-## 📁 Workspace Artifacts
+## Workspace Artifacts
 
 REVI maintains state in a `.kinda_claude/` directory within your project:
 - `codebase_brain.md` / `.json`: Deep codebase understanding.
