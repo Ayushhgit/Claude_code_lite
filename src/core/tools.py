@@ -149,7 +149,19 @@ def delete_file_tool(path: str) -> str:
     if not os.path.isabs(path):
         folder = os.getenv("FOLDER_PATH", ".")
         path = os.path.join(folder, path)
-        
+
+    from utils.ui import console
+    console.print(f"\n  [bold red]⚠ DELETE FILE[/bold red]: [white]{path}[/white]")
+    try:
+        from prompt_toolkit import prompt as pt_prompt
+        answer = pt_prompt("  Confirm delete? (y/n): ").strip().lower()
+        if answer not in ('y', 'yes'):
+            console.print("  [bold red]✗ Rejected[/bold red]")
+            return "File deletion rejected by user."
+        console.print("  [bold green]✓ Approved[/bold green]")
+    except (KeyboardInterrupt, EOFError):
+        return "File deletion rejected by user."
+
     try:
         if os.path.exists(path):
             os.remove(path)
