@@ -349,10 +349,13 @@ def main():
         
         if cmd == "/dashboard" or cmd == "/daemon":
             console.print("[bold green]🚀 Starting REVI Command Center & CI/CD Webhook server at http://localhost:8000[/bold green]")
-            import threading
-            from server.app import start_server
-            threading.Thread(target=start_server, daemon=True).start()
+            import subprocess
+            import sys
             import webbrowser
+            # Run server in a completely separate process to isolate asyncio event loops 
+            # and prevent prompt_toolkit/uvicorn conflicts on Windows
+            subprocess.Popen([sys.executable, "-c", "from server.app import start_server; start_server()"], 
+                             cwd=os.path.dirname(__file__))
             webbrowser.open("http://localhost:8000")
             continue
         
