@@ -4,6 +4,7 @@ import time
 import random
 import threading
 import sys
+import subprocess
 
 from llm.client import generate
 from core.tools import TOOLS_SCHEMA, execute_tool
@@ -85,6 +86,14 @@ class _Spinner:
         self.stop()
 
 spinner = _Spinner()
+
+# Tools safe to run concurrently — read-only, no user I/O
+PARALLELIZABLE_TOOLS = {
+    'cat', 'grep', 'ls', 'get_repo_map', 'get_file_symbols', 'get_ast_map',
+    'find_references', 'go_to_definition', 'find_implementations', 'get_call_graph',
+    'codebase_search', 'semantic_search', 'websearch', 'arxiv_search', 'read_url',
+    'get_tasks', 'sandbox_status', 'query_graph',
+}
 
 def _safe_parse_json(raw: str) -> dict:
     """Try to parse JSON, auto-fixing common LLM mistakes."""
@@ -289,6 +298,7 @@ def call_llm_with_tools(messages):
     bad_retries = 0
     rate_retries = 0
     retry_msg_count = 0  # Track how many error-correction messages we injected
+    files_read_this_turn = set()  # Read-before-edit guard: track cat'd paths
     
     # Dynamic tool selection based on intent
     active_tools = _select_tools_for_intent(messages)
@@ -365,6 +375,7 @@ def call_llm_with_tools(messages):
 
         if getattr(message, "tool_calls", None):
             import re
+            from utils.ui import broadcast_sync  # must be before any tool execution
             if message.content:
                 think_match = re.search(r'<thinking>(.*?)</thinking>', message.content, re.DOTALL)
                 if think_match:
@@ -375,7 +386,6 @@ def call_llm_with_tools(messages):
                         border_style="dim",
                         padding=(0, 1)
                     ))
-                    from utils.ui import broadcast_sync
                     broadcast_sync("thought", think_match.group(1).strip())
                     
             messages.append({
@@ -393,52 +403,117 @@ def call_llm_with_tools(messages):
                 ]
             })
             
-            for tool_call in message.tool_calls:
-                tool_name = tool_call.function.name
-                try:
-                    raw_args = tool_call.function.arguments
-                    args = _safe_parse_json(raw_args)
-                    broadcast_sync("tool", f"Executing: {tool_name}({raw_args})")
-                    tool_result = execute_tool(tool_name, args)
-                except Exception as e:
-                    tool_result = f"Error executing tool (likely invalid JSON arguments): {e}"
-                    
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": tool_name,
-                    "content": str(tool_result)
-                })
-                
-                # SELF-HEALING: If run_command returned an error, inject an auto-fix prompt
-                if tool_name in ("run_command", "run_background_command"):
-                    result_lower = str(tool_result).lower()
-                    error_signals = ['traceback', 'error:', 'exception', 'failed', 'syntaxerror', 'modulenotfounderror', 'importerror', 'nameerror', 'typeerror', 'exit code 1', 'exit code 2']
-                    if any(sig in result_lower for sig in error_signals):
-                        # Use self_heal to analyze the error
-                        try:
-                            from core.self_heal import analyze_command_output
-                            analysis = analyze_command_output(str(tool_result))
-                            if analysis["has_errors"]:
-                                console.print(f"[bold red]  [Self-Heal] {analysis['error_type']}: {analysis['error_summary'][:80]}[/bold red]")
-                                console.print(f"[dim]  Suggested: {analysis['suggested_action']}[/dim]")
-                        except Exception:
-                            console.print("[bold red]  [Self-Heal] Error detected in command output. Agent will attempt automatic fix...[/bold red]")
-                
-                # SELF-HEAL on file edits: auto-lint after writes
-                if tool_name in ("edit_file", "replace_in_file", "apply_diff", "batch_edit_files"):
+            tool_calls_list = message.tool_calls
+            all_parallel = (
+                len(tool_calls_list) > 1 and
+                all(tc.function.name in PARALLELIZABLE_TOOLS for tc in tool_calls_list)
+            )
+
+            if all_parallel:
+                # ── Parallel execution for read-only tool batches ──
+                console.print(f"  [dim]⚡ Parallel: {len(tool_calls_list)} tools simultaneously[/dim]")
+                results_ordered = [None] * len(tool_calls_list)
+
+                def _run_parallel(idx, tc):
                     try:
-                        from core.self_heal import check_and_heal
-                        edited_path = args.get("path", "")
-                        if edited_path and edited_path.endswith('.py'):
-                            heal_report = check_and_heal(edited_path)
-                            if heal_report.get("needs_fix") and heal_report.get("error_report"):
-                                messages.append({
-                                    "role": "user",
-                                    "content": heal_report["error_report"]
-                                })
-                    except Exception:
-                        pass
+                        args = _safe_parse_json(tc.function.arguments)
+                        result = execute_tool(tc.function.name, args)
+                        results_ordered[idx] = (tc, args, result)
+                    except Exception as e:
+                        results_ordered[idx] = (tc, {}, f"Error: {e}")
+
+                threads = [threading.Thread(target=_run_parallel, args=(i, tc), daemon=True)
+                           for i, tc in enumerate(tool_calls_list)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+
+                for tc, args, tool_result in results_ordered:
+                    tool_name = tc.function.name
+                    broadcast_sync("tool", f"Parallel: {tool_name}({tc.function.arguments[:80]})")
+                    if tool_name == "cat":
+                        _cp = args.get("path", "")
+                        if not os.path.isabs(_cp):
+                            _cp = os.path.join(os.getenv("FOLDER_PATH", "."), _cp)
+                        files_read_this_turn.add(os.path.normpath(_cp))
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": tool_name,
+                        "content": str(tool_result)
+                    })
+            else:
+                # ── Sequential execution with guards and self-heal ──
+                for tool_call in tool_calls_list:
+                    tool_name = tool_call.function.name
+                    try:
+                        raw_args = tool_call.function.arguments
+                        args = _safe_parse_json(raw_args)
+                        broadcast_sync("tool", f"Executing: {tool_name}({raw_args})")
+
+                        # Read-before-edit guard: snapshot existence before the write
+                        pre_edit_path = None
+                        pre_edit_exists = False
+                        if tool_name == "edit_file":
+                            _ep = args.get("path", "")
+                            if not os.path.isabs(_ep):
+                                _ep = os.path.join(os.getenv("FOLDER_PATH", "."), _ep)
+                            pre_edit_path = os.path.normpath(_ep)
+                            pre_edit_exists = os.path.exists(pre_edit_path)
+
+                        tool_result = execute_tool(tool_name, args)
+
+                        # Track cat reads for guard
+                        if tool_name == "cat":
+                            _cp = args.get("path", "")
+                            if not os.path.isabs(_cp):
+                                _cp = os.path.join(os.getenv("FOLDER_PATH", "."), _cp)
+                            files_read_this_turn.add(os.path.normpath(_cp))
+
+                        # Warn when existing file overwritten without prior read
+                        if tool_name == "edit_file" and pre_edit_exists and pre_edit_path not in files_read_this_turn:
+                            console.print(f"  [bold yellow]⚠ Read-before-edit: {args.get('path')} overwritten without prior cat[/bold yellow]")
+                            tool_result += "\n\n[⚠ AGENT NOTE: You overwrote an existing file without reading it first. Next time, cat the file first, then use replace_in_file or apply_diff for targeted edits.]"
+
+                    except Exception as e:
+                        tool_result = f"Error executing tool (likely invalid JSON arguments): {e}"
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": str(tool_result)
+                    })
+
+                    # SELF-HEALING: If run_command returned an error, inject an auto-fix prompt
+                    if tool_name in ("run_command", "run_background_command"):
+                        result_lower = str(tool_result).lower()
+                        error_signals = ['traceback', 'error:', 'exception', 'failed', 'syntaxerror', 'modulenotfounderror', 'importerror', 'nameerror', 'typeerror', 'exit code 1', 'exit code 2']
+                        if any(sig in result_lower for sig in error_signals):
+                            try:
+                                from core.self_heal import analyze_command_output
+                                analysis = analyze_command_output(str(tool_result))
+                                if analysis["has_errors"]:
+                                    console.print(f"[bold red]  [Self-Heal] {analysis['error_type']}: {analysis['error_summary'][:80]}[/bold red]")
+                                    console.print(f"[dim]  Suggested: {analysis['suggested_action']}[/dim]")
+                            except Exception:
+                                console.print("[bold red]  [Self-Heal] Error detected in command output. Agent will attempt automatic fix...[/bold red]")
+
+                    # SELF-HEAL on file edits: auto-lint after writes
+                    if tool_name in ("edit_file", "replace_in_file", "apply_diff", "batch_edit_files"):
+                        try:
+                            from core.self_heal import check_and_heal
+                            edited_path = args.get("path", "")
+                            if edited_path and edited_path.endswith('.py'):
+                                heal_report = check_and_heal(edited_path)
+                                if heal_report.get("needs_fix") and heal_report.get("error_report"):
+                                    messages.append({
+                                        "role": "user",
+                                        "content": heal_report["error_report"]
+                                    })
+                        except Exception:
+                            pass
         else:
             content = message.content.strip() if message.content else ""
             # Model outputted code as text instead of using tools — attempt auto-rescue
@@ -512,157 +587,61 @@ def init_messages(path):
     if brain_context:
         extra_context += f"\n\nCODEBASE BRAIN (deep understanding from last scan):\n{brain_context}"
 
+    # Git awareness: inject live git state so agent knows branch/dirty files on every session
+    try:
+        _branch = subprocess.run(
+            ["git", "branch", "--show-current"], capture_output=True, text=True,
+            timeout=5, cwd=path, encoding='utf-8', errors='replace'
+        ).stdout.strip()
+        _status = subprocess.run(
+            ["git", "status", "--short"], capture_output=True, text=True,
+            timeout=5, cwd=path, encoding='utf-8', errors='replace'
+        ).stdout.strip()
+        _log = subprocess.run(
+            ["git", "log", "--oneline", "-5"], capture_output=True, text=True,
+            timeout=5, cwd=path, encoding='utf-8', errors='replace'
+        ).stdout.strip()
+        if _branch:
+            _git_ctx = f"\n\nGIT STATE (at session start):\n  Branch: {_branch}\n"
+            if _status:
+                _git_ctx += f"  Modified files:\n{_status[:400]}\n"
+            if _log:
+                _git_ctx += f"  Recent commits:\n{_log[:400]}\n"
+            extra_context += _git_ctx
+    except Exception:
+        pass
+
     return [
         {
             "role": "system",
-            "content": f"""You are an elite, autonomous AI software engineer. You work like a senior developer — methodical, systematic, and thorough. You NEVER rush. You ALWAYS understand before you act.
+            "content": f"""Autonomous AI software engineer. Root: {path} (Windows — use Windows/relative paths only).
 
-The root folder you are working in is: {path}
+WORKFLOW:
+1. UNDERSTAND — get_ast_map → cat relevant files → find_references/go_to_definition if needed → get_tasks
+2. PLAN (>2 files) — set_goal → create_task per step → <thinking>: order, risks, what changes
+3. BUILD — one file at a time → lint_check after each .py → complete_task per step
+4. VERIFY — verify_project → fix → repeat max 3× → ask_human if stuck
+5. COMMIT — git_command("add -A") → git_command("commit -m 'type(scope): desc'")
+   types: feat/fix/refactor/docs. Push only if asked.
 
-═══════════════════════════════════════════════════════════════
-YOUR METHODOLOGY — Follow this EXACT workflow for EVERY task:
-═══════════════════════════════════════════════════════════════
+CRITICAL RULES:
+⚠ TOOL-FIRST: Never output code as text. No tool call = nothing happens. Use edit_file/replace_in_file/run_command.
+⚠ DIFF-FIRST: edit_file = NEW files only. Existing → replace_in_file (single) or apply_diff (multi). Never overwrite blindly.
+⚠ SELF-HEAL: run_command errors → analyze traceback → fix → rerun. Auto-lint fires on .py edits — fix immediately. Max 3 attempts.
+⚠ READ-FIRST: cat every file before editing. Never guess contents.
 
-PHASE 1 — UNDERSTAND (mandatory before ANY code changes):
-  Before writing or editing a SINGLE line of code, you MUST first understand the codebase:
-  1. Run `get_ast_map` to see the full architecture (all classes, functions, imports, file structure).
-  2. Read all relevant files with `cat` — do NOT guess what's inside a file. Read it.
-  3. If the task involves a specific module, use `find_references` and `go_to_definition` to understand how it connects to other parts of the code.
-  4. Use `get_call_graph` if you need to understand who calls what before refactoring.
-  5. Check `get_tasks` to see if there's an active scratchpad from a previous turn.
-  ONLY after you have a complete mental model of the relevant code should you proceed.
+TOOLS:
+Understand : get_ast_map, cat, find_references, go_to_definition, get_call_graph, get_file_symbols, codebase_search
+Edit       : edit_file(new only), replace_in_file(existing+single), apply_diff(existing+multi), batch_edit_files(new+multi)
+Run        : run_command, run_background_command, lint_check, run_tests, verify_project, scan_codebase
+Plan       : set_goal, create_task, complete_task, add_subtask, get_tasks, add_note
+Git        : git_command
+Other      : ask_human, websearch, read_url, arxiv_search
 
-PHASE 2 — PLAN (for medium/complex tasks):
-  For any task that touches more than 2 files or creates new modules:
-  1. Use `set_goal` to declare the high-level objective.
-  2. Use `create_task` for each distinct piece of work, ordered by dependency.
-  3. Write your implementation approach in a `<thinking>` block:
-     - What new files/functions need to be created?
-     - What existing files need modification?
-     - What is the dependency order? (foundation → implementation → integration → verification)
-     - What could go wrong?
-  The system automatically engages an Architect agent for complex tasks that creates a formal plan.
+<thinking> before each tool: what/why/risk/confidence.
 
-PHASE 3 — BUILD (systematic, module by module):
-  Execute the plan step by step:
-  1. Build each piece ONE AT A TIME. Do not try to create 10 files in parallel.
-  2. After creating/editing each file, IMMEDIATELY run `lint_check` on it.
-  3. If lint errors appear, fix them BEFORE moving to the next file.
-  4. Use `complete_task` after each step so you stay oriented.
-  5. For new files: use `edit_file` or `batch_edit_files`.
-  6. For modifications to existing files: ALWAYS use `cat` to read first, then `replace_in_file` for single edits or `apply_diff` for multiple edits. NEVER blindly overwrite.
-  7. Match the existing project's patterns — naming conventions, import style, file organization.
-
-PHASE 4 — VERIFY (mandatory after ALL changes):
-  After you believe you're done:
-  1. Run `verify_project` — this runs ALL checks at once:
-     - Compile check (py_compile on every .py file)
-     - Import resolution (validates all imports resolve)
-     - Lint check (syntax validation)
-     - Test suite (if tests exist)
-     - Tool schema consistency (if applicable)
-  2. If any check fails, fix the issue and re-run `verify_project`.
-  3. Repeat up to 3 times. If still broken, use `ask_human`.
-  4. NEVER report success without verification passing.
-  The system also auto-verifies after complex tasks — if it fails, you'll get the report automatically.
-
-PHASE 5 — COMMIT (with proper messages):
-  After verification passes:
-  1. Use `git_command("add -A")` to stage changes.
-  2. Use `git_command('commit -m "type(scope): description"')` with conventional commit format:
-     - `feat(scope):` for new features
-     - `fix(scope):` for bug fixes
-     - `refactor(scope):` for restructuring
-     - `docs(scope):` for documentation
-  3. Include a multi-line commit body for significant changes.
-  4. Only push if the user asks you to.
-
-═══════════════════════════════════════════════════════════════
-ENVIRONMENT RULES:
-═══════════════════════════════════════════════════════════════
-- You are on a WINDOWS machine. NEVER guess Unix paths like '/Users/...'.
-- ALL tools use '{path}' as the working directory.
-- When using `run_command`, use RELATIVE paths from '{path}'.
-- For file tools (cat, edit_file), use relative paths from the root.
-
-═══════════════════════════════════════════════════════════════
-TOOL USAGE GUIDE:
-═══════════════════════════════════════════════════════════════
-UNDERSTANDING TOOLS (use these FIRST):
-  - `get_ast_map` — See entire codebase skeleton (classes, methods, signatures). Use this before ANY task.
-  - `cat` — Read a file's contents. ALWAYS read before editing.
-  - `find_references` — Find all usages of a symbol (like IDE "Find All References").
-  - `go_to_definition` — Find where something is defined (like IDE "Go to Definition").
-  - `find_implementations` — Find subclasses/implementations of a class.
-  - `get_call_graph` — See who calls a function. Critical before refactoring.
-  - `get_file_symbols` — Quick overview of a file's classes and functions.
-  - `codebase_search` — Combined semantic + regex search. Best for finding specific patterns.
-
-EDITING TOOLS:
-  - `edit_file` — Create or fully overwrite a file.
-  - `replace_in_file` — Replace exact text in a file (for single targeted edits).
-  - `apply_diff` — Apply multiple search/replace blocks to a file.
-  - `batch_edit_files` — Create/overwrite multiple files at once (for scaffolding).
-
-EXECUTION TOOLS:
-  - `run_command` — Execute a shell command (with user approval for unsafe commands).
-  - `run_background_command` — Start a long-running process (dev servers, etc.).
-  - `lint_check` — Run linter on a Python file. USE AFTER EVERY EDIT.
-  - `run_tests` — Run the project's test suite. USE AFTER ALL CHANGES.
-  - `verify_project` — Run FULL verification (compile + imports + lint + tests + schema check). USE AFTER COMPLEX TASKS.
-  - `scan_codebase` — Deep scan entire codebase and build persistent brain document. USE AT START OF SESSION.
-
-PLANNING TOOLS:
-  - `set_goal` — Declare the session's high-level objective.
-  - `create_task` — Create a tracked task in the scratchpad.
-  - `complete_task` — Mark a task done. Keeps you oriented across turns.
-  - `add_subtask` — Break a task into smaller pieces.
-  - `get_tasks` — View all current tasks.
-  - `add_note` — Record observations or decisions for future reference.
-
-GIT TOOLS:
-  - `git_command` — Run git commands (status, add, commit, log, diff, etc.).
-
-OTHER TOOLS:
-  - `ask_human` — Ask the user a question when you're stuck or need a decision.
-  - `websearch` — Search the internet for documentation or solutions.
-  - `read_url` — Read a webpage.
-  - `arxiv_search` — Search academic papers.
-
-═══════════════════════════════════════════════════════════════
-CRITICAL — TOOL-FIRST RULE (NEVER BREAK THIS):
-═══════════════════════════════════════════════════════════════
-NEVER output code, file contents, or implementations as plain text in your response.
-If you need to create or edit a file, you MUST call edit_file or batch_edit_files.
-If you need to run something, you MUST call run_command.
-Outputting code as text does NOTHING — it does not create files. The user cannot see your
-reasoning, only the results of your tool calls. A response with code blocks but no tool
-calls is a FAILURE. Always act through tools, never through text.
-
-═══════════════════════════════════════════════════════════════
-THINKING PROTOCOL:
-═══════════════════════════════════════════════════════════════
-Before EVERY tool call, write a `<thinking>` block that includes:
-1. What you currently understand about the problem
-2. What you're about to do and WHY
-3. What could go wrong
-4. Your confidence level (high/medium/low)
-
-═══════════════════════════════════════════════════════════════
-SELF-HEALING PROTOCOL:
-═══════════════════════════════════════════════════════════════
-- After `run_command`: if the output has errors, IMMEDIATELY analyze the traceback, fix the code, and re-run. Never just report an error.
-- After `edit_file`/`replace_in_file`: the system auto-lints Python files. If lint errors appear, fix them immediately.
-- Max 3 fix attempts per error. If still broken, use `ask_human`.
-
-═══════════════════════════════════════════════════════════════
-MEMORY:
-═══════════════════════════════════════════════════════════════
-You have a persistent memory file at `.agent_memory.md`. Current contents:
---------------------------------------------------
+MEMORY (.agent_memory.md):
 {memory_content}
---------------------------------------------------
-Update this file when you learn something important about the codebase, user preferences, or solve a tricky problem.
 {extra_context}
 """
         }
@@ -815,14 +794,15 @@ YOUR EXECUTION INSTRUCTIONS:
             review = run_reviewer(instruction, diff_context)
             if review and review.get("verdict") == "request_changes":
                 console.print("  [yellow]📝 Reviewer requested changes — sending back to executor...[/yellow]")
+                # Append first-pass result as context before injecting reviewer feedback
+                messages.append({"role": "assistant", "content": result})
                 review_feedback = f"[REVIEWER FEEDBACK] Score: {review.get('score', '?')}/10. Issues: "
                 for issue in review.get("issues", [])[:3]:
                     review_feedback += f"\n- [{issue.get('severity', '?')}] {issue.get('description', '')} -> Fix: {issue.get('fix', '')}"
                 review_feedback += "\n\nPlease fix these issues. Read the affected files first, make the corrections, then lint_check each one."
                 messages.append({"role": "user", "content": review_feedback})
                 fix_result = call_llm_with_tools(messages)
-                messages.append({"role": "assistant", "content": fix_result})
-                result = fix_result
+                result = fix_result  # line 964 appends the final result
     except Exception:
         pass
 
@@ -839,6 +819,8 @@ YOUR EXECUTION INSTRUCTIONS:
                 # Feed failures back to the agent for self-healing
                 report_text = format_verification_report(verify_report)
                 console.print("  [bold red]❌ Verification FAILED — sending back for fixes...[/bold red]")
+                # Append current result as context before injecting fix prompt
+                messages.append({"role": "assistant", "content": result})
                 fix_prompt = (
                     f"[AUTO-VERIFICATION FAILED]\n{report_text}\n\n"
                     "Please fix the issues above. For each failed check:\n"
@@ -849,8 +831,7 @@ YOUR EXECUTION INSTRUCTIONS:
                 )
                 messages.append({"role": "user", "content": fix_prompt})
                 fix_result = call_llm_with_tools(messages)
-                messages.append({"role": "assistant", "content": fix_result})
-                result = fix_result
+                result = fix_result  # line 964 appends the final result
             else:
                 console.print(f"  [bold green]✅ Verification PASSED ({verify_report.get('summary', '')})[/bold green]")
     except Exception:
