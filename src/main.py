@@ -51,6 +51,7 @@ TIPS = [
     "Tip: Use /tasks to see what the agent is currently working on",
     "Tip: The Reviewer agent validates code quality on complex tasks",
     "Tip: Use /sandbox to check Docker sandboxing status",
+    "Tip: Use /model to switch models or enable auto-routing across Groq models",
 ]
 
 GREETINGS = [
@@ -82,30 +83,35 @@ THINKING_VERBS = [
 HELP_TEXT = """
 ## Slash Commands
 
-| Command     | Description                              |
-|-------------|------------------------------------------|
-| `/help`     | Show this help menu                      |
-| `/clear`    | Reset context window                     |
-| `/compact`  | Force-compact context to save tokens     |
-| `/status`   | Show session stats                       |
-| `/map`      | Show AST-based codebase architecture     |
-| `/scan`     | Deep scan codebase + build brain document|
-| `/tasks`    | Show current task scratchpad             |
-| `/plan`     | Show the active execution plan           |
-| `/sandbox`  | Show Docker sandbox status               |
-| `/verify`   | Run full project verification             |
-| `/undo`     | Git undo last commit                     |
-| `/diff`     | Show uncommitted git changes             |
-| `/commit`   | Auto-commit all changes                  |
-| `/git <cmd>`| Run any git command                      |
-| `exit`      | Quit the agent                           |
+| Command          | Description                                        |
+|------------------|----------------------------------------------------|
+| `/help`          | Show this help menu                                |
+| `/clear`         | Reset context window                               |
+| `/compact`       | Force-compact context to save tokens               |
+| `/status`        | Show session stats                                 |
+| `/model`         | List models, check rate limits, switch model/mode  |
+| `/model auto`    | Enable smart auto-routing across Groq models       |
+| `/model <n>`     | Force a specific model by list number              |
+| `/model <id>`    | Force a specific model by ID                       |
+| `/map`           | Show AST-based codebase architecture               |
+| `/scan`          | Deep scan codebase + build brain document          |
+| `/tasks`         | Show current task scratchpad                       |
+| `/plan`          | Show the active execution plan                     |
+| `/sandbox`       | Show Docker sandbox status                         |
+| `/verify`        | Run full project verification (compile+lint+tests) |
+| `/undo`          | Git undo last commit                               |
+| `/diff`          | Show uncommitted git changes                       |
+| `/commit`        | Auto-commit all changes                            |
+| `/git <cmd>`     | Run any git command                                |
+| `exit`           | Quit the agent                                     |
 """
 
 SLASH_COMMANDS = {
     "/help":    "Show all available commands",
     "/clear":   "Reset context window and start fresh",
     "/compact": "Force-compact context to save tokens",
-    "/status":  "Show session stats (turns, tokens, git branch)",
+    "/status":  "Show session stats (turns, tokens, model, git branch)",
+    "/model":   "List models / switch model or provider / enable auto-routing",
     "/map":     "Show AST-based codebase architecture map",
     "/scan":    "Deep scan codebase and build brain document",
     "/tasks":   "Show current task scratchpad",
@@ -278,6 +284,10 @@ def main():
             continue
             
         if cmd == "/status":
+            from llm import model_router
+            current_mode = model_router.get_current_mode()
+            last_used = model_router.get_last_used() or "none yet"
+            mode_display = f"AUTO → {last_used}" if current_mode == "auto" else f"FIXED: {current_mode}"
             table = Table(title="⚡ Session Status", box=box.ROUNDED, border_style="cyan")
             table.add_column("Metric", style="bold white")
             table.add_column("Value", style="green")
@@ -285,6 +295,8 @@ def main():
             table.add_row("Messages in Context", str(len(messages)))
             table.add_row("Context Tokens (~)", f"{_estimate_tokens(messages):,}")
             table.add_row("Total Tokens Used (~)", f"{total_tokens_used:,}")
+            table.add_row("Provider", os.getenv("PROVIDER", "groq").upper())
+            table.add_row("Model Mode", mode_display)
             table.add_row("Git Branch", git_branch)
             table.add_row("Workspace", path)
             console.print(table)
@@ -391,7 +403,86 @@ def main():
             except Exception as e:
                 console.print(f"[red]Error: {e}[/red]")
             continue
-        
+
+        if instruction.strip().lower().startswith("/model"):
+            from llm import model_router
+            parts = instruction.strip().split(maxsplit=1)
+            arg = parts[1].strip() if len(parts) > 1 else ""
+
+            if arg in ("", "list"):
+                # ── Show model table ──
+                t = Table(title="🤖 Model Router", box=box.ROUNDED, border_style="cyan")
+                t.add_column("#",           style="dim",    width=3)
+                t.add_column("Model ID",    style="cyan",   no_wrap=True)
+                t.add_column("Name",        style="white")
+                t.add_column("Tier",        style="yellow", width=9)
+                t.add_column("Description", style="dim")
+                t.add_column("Status",      style="green",  no_wrap=True)
+
+                current_mode = model_router.get_current_mode()
+                last_used = model_router.get_last_used()
+                models = model_router.get_all_models(os.getenv("PROVIDER", "groq"))
+
+                for i, (mid, info) in enumerate(models.items(), 1):
+                    eta = model_router.get_rate_limit_eta(mid)
+                    if eta > 0:
+                        status = f"[red]⏳ {eta}s[/red]"
+                    elif current_mode == mid:
+                        status = "[bold green]◆ forced[/bold green]"
+                    elif mid == last_used:
+                        status = "[cyan]◆ last used[/cyan]"
+                    else:
+                        status = "[dim]available[/dim]"
+                    t.add_row(str(i), mid, info["display"], info["tier"],
+                              info["description"], status)
+
+                mode_label = "[bold cyan]AUTO[/bold cyan] (smart routing)" \
+                    if current_mode == "auto" else f"[bold yellow]FIXED[/bold yellow]: {current_mode}"
+                provider_label = os.getenv("PROVIDER", "groq").upper()
+
+                console.print(t)
+                console.print(f"\n  Provider : [bold]{provider_label}[/bold]")
+                console.print(f"  Mode     : {mode_label}")
+                console.print("  [dim]Usage: /model auto | /model <#> | /model <model-id> | /model provider groq|gemini[/dim]\n")
+
+            elif arg == "auto":
+                model_router.set_mode("auto")
+                console.print("[bold green]✓ Auto-routing ON — models rotate by task type and rate-limit status.[/bold green]\n")
+
+            elif arg.startswith("provider "):
+                new_provider = arg.split(maxsplit=1)[1].strip().lower()
+                if new_provider in ("groq", "gemini"):
+                    import dotenv
+                    dotenv.set_key(".env", "PROVIDER", new_provider)
+                    os.environ["PROVIDER"] = new_provider
+                    model_router.set_mode("auto")
+                    avail = list(model_router.get_all_models(new_provider).keys())
+                    console.print(f"[bold green]✓ Provider → {new_provider.upper()}. Auto mode reset.[/bold green]")
+                    console.print(f"  [dim]Available models: {', '.join(avail)}[/dim]\n")
+                else:
+                    console.print("[red]Unknown provider. Use: groq | gemini[/red]")
+
+            else:
+                # Try as integer index or model id
+                models_list = list(model_router.get_all_models(os.getenv("PROVIDER", "groq")).keys())
+                try:
+                    idx = int(arg) - 1
+                    if 0 <= idx < len(models_list):
+                        target = models_list[idx]
+                        model_router.set_mode(target)
+                        info = model_router.GROQ_MODELS.get(target, {})
+                        console.print(f"[bold green]✓ Model locked: {info.get('display', target)} ({target})[/bold green]\n")
+                    else:
+                        console.print(f"[red]Invalid number. Use 1–{len(models_list)}.[/red]")
+                except ValueError:
+                    try:
+                        model_router.set_mode(arg)
+                        info = model_router.GROQ_MODELS.get(arg, model_router.GEMINI_MODELS.get(arg, {}))
+                        console.print(f"[bold green]✓ Model locked: {info.get('display', arg)}[/bold green]\n")
+                    except ValueError as e:
+                        console.print(f"[red]{e}[/red]")
+            continue
+
         # ── Normal Agent Turn ──
         turn_count += 1
         console.print()
