@@ -259,6 +259,7 @@ def check_and_heal(filepath: str, cwd: str = None) -> dict:
         "lint": None,
         "needs_fix": False,
         "error_report": "",
+        "blast_radius": []
     }
 
     # Only lint Python files for now
@@ -290,6 +291,44 @@ def check_and_heal(filepath: str, cwd: str = None) -> dict:
             console.print(f"  [bold yellow]🔧 Self-Heal: {len(lint_result['errors'])} lint error(s) in {os.path.basename(filepath)} (attempt {attempt}/{MAX_HEAL_RETRIES})[/bold yellow]")
         else:
             console.print(f"  [bold red]⚠ Self-Heal: Max retries reached for {os.path.basename(filepath)}, skipping auto-fix[/bold red]")
+
+    # --- Feature 6: Semantic Blast Radius Analysis ---
+    try:
+        from core.repo_map import build_repo_map
+        repo = build_repo_map(cwd)
+        files = repo.get("files", {})
+        
+        rel_path = os.path.relpath(filepath, cwd).replace('\\', '/')
+        mod_parts = rel_path.replace('.py', '').replace('.js', '').replace('.ts', '').split('/')
+        if mod_parts[0] == 'src':
+            mod_parts = mod_parts[1:]
+        mod_name = ".".join(mod_parts)
+        
+        dependents = []
+        for p, info in files.items():
+            if p == rel_path:
+                continue
+            for imp in info.get("imports", []):
+                if mod_name in imp or rel_path.split('/')[-1].split('.')[0] in imp:
+                    dependents.append(p)
+                    break
+                    
+        if dependents:
+            report["blast_radius"] = dependents
+            msg = f"\n\n[Semantic Blast Radius]\nYou modified `{os.path.basename(filepath)}`. The following {len(dependents)} file(s) depend on it and may be broken by your changes:\n"
+            msg += "\n".join([f"- {dep}" for dep in dependents[:5]])
+            if len(dependents) > 5:
+                msg += f"\n...and {len(dependents)-5} more."
+            msg += "\n\nPlease review these files to ensure you haven't broken their imports or function calls."
+
+            if not report["needs_fix"]:
+                report["needs_fix"] = True
+                report["error_report"] = msg
+                console.print(f"  [bold magenta]🕸️ Blast Radius: {len(dependents)} dependent file(s) detected. Warning agent...[/bold magenta]")
+            else:
+                report["error_report"] += msg
+    except Exception as e:
+        pass
 
     return report
 
