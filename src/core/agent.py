@@ -97,28 +97,25 @@ PARALLELIZABLE_TOOLS = {
 
 def _safe_parse_json(raw: str) -> dict:
     """Try to parse JSON, auto-fixing common LLM mistakes."""
-    # First try direct parse
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         pass
-    
-    # Fix 1: Remove trailing commas before } or ]
+        
+    # Try ast.literal_eval for single quotes and trailing commas
+    try:
+        import ast
+        # Convert true/false/null to Python equivalents before eval
+        py_str = raw.replace('true', 'True').replace('false', 'False').replace('null', 'None')
+        parsed = ast.literal_eval(py_str)
+        if isinstance(parsed, dict):
+            return parsed
+    except (ValueError, SyntaxError, TypeError):
+        pass
+        
+    # Fallback to regex fixes for unescaped newlines and remaining issues
     sanitized = re.sub(r',\s*([}\]])', r'\1', raw)
-    try:
-        return json.loads(sanitized)
-    except json.JSONDecodeError:
-        pass
-    
-    # Fix 2: Replace single quotes with double quotes
-    sanitized = sanitized.replace("'", '"')
-    try:
-        return json.loads(sanitized)
-    except json.JSONDecodeError:
-        pass
-    
-    # Fix 3: Escape unescaped newlines inside string values
-    sanitized = re.sub(r'(?<!\\)\n', r'\\n', raw)
+    sanitized = re.sub(r'(?<!\\)\n', r'\\n', sanitized)
     try:
         return json.loads(sanitized)
     except json.JSONDecodeError:
@@ -261,7 +258,6 @@ def _rescue_code_blocks(text):
     """
     Parse code blocks from a text-only LLM response.
     Returns list of (filename, code) pairs where a filename could be detected.
-    Looks for patterns before each ``` block: **file.ext**, `file.ext`, file.ext:
     """
     results = []
     lines = text.split('\n')
@@ -269,7 +265,6 @@ def _rescue_code_blocks(text):
     while i < len(lines):
         stripped = lines[i].strip()
         if stripped.startswith('```'):
-            # Collect code until closing fence
             code_lines = []
             j = i + 1
             while j < len(lines) and not lines[j].strip().startswith('```'):
@@ -277,7 +272,6 @@ def _rescue_code_blocks(text):
                 j += 1
             code = '\n'.join(code_lines).strip()
 
-            # Try to find a filename in the preceding 3 lines
             filename = None
             for k in range(max(0, i - 3), i):
                 prev = lines[k].strip()
@@ -292,6 +286,132 @@ def _rescue_code_blocks(text):
         else:
             i += 1
     return results
+
+def _execute_parallel_tools(tool_calls_list, messages, files_read_this_turn):
+    """Execute multiple read-only tools concurrently to save time."""
+    from utils.ui import broadcast_sync
+    console.print(f"  [dim]⚡ Parallel: {len(tool_calls_list)} tools simultaneously[/dim]")
+    results_ordered = [None] * len(tool_calls_list)
+
+    def _run_parallel(idx, tc):
+        try:
+            args = _safe_parse_json(tc.function.arguments)
+            result = execute_tool(tc.function.name, args)
+            results_ordered[idx] = (tc, args, result)
+        except Exception as e:
+            results_ordered[idx] = (tc, {}, f"Error: {e}")
+
+    threads = [threading.Thread(target=_run_parallel, args=(i, tc), daemon=True)
+               for i, tc in enumerate(tool_calls_list)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+
+    for tc, args, tool_result in results_ordered:
+        tool_name = tc.function.name
+        broadcast_sync("tool", f"Parallel: {tool_name}({tc.function.arguments[:80]})")
+        if tool_name == "cat":
+            _cp = args.get("path", "")
+            if not os.path.isabs(_cp):
+                _cp = os.path.join(os.getenv("FOLDER_PATH", "."), _cp)
+            files_read_this_turn.add(os.path.normpath(_cp))
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "name": tool_name,
+            "content": str(tool_result)
+        })
+
+def _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn):
+    """Execute tools one-by-one with safety guards and self-healing analysis."""
+    from utils.ui import broadcast_sync
+    for tool_call in tool_calls_list:
+        tool_name = tool_call.function.name
+        try:
+            raw_args = tool_call.function.arguments
+            args = _safe_parse_json(raw_args)
+            broadcast_sync("tool", f"Executing: {tool_name}({raw_args})")
+
+            pre_edit_path = None
+            pre_edit_exists = False
+            if tool_name == "edit_file":
+                _ep = args.get("path", "")
+                if not os.path.isabs(_ep):
+                    _ep = os.path.join(os.getenv("FOLDER_PATH", "."), _ep)
+                pre_edit_path = os.path.normpath(_ep)
+                pre_edit_exists = os.path.exists(pre_edit_path)
+
+            if tool_name == "edit_file" and pre_edit_exists:
+                rel = args.get("path", pre_edit_path)
+                console.print(f"  [bold red]✗ Blocked edit_file on existing file '{rel}' — use replace_in_file or apply_diff[/bold red]")
+                tool_result = (
+                    f"BLOCKED: '{rel}' already exists. edit_file is for NEW files only. "
+                    "To modify an existing file you MUST use replace_in_file (single change) "
+                    "or apply_diff (multiple changes). First cat the file to read its current "
+                    "content, then use the correct tool."
+                )
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "name": tool_name,
+                    "content": tool_result
+                })
+                continue
+
+            tool_result = execute_tool(tool_name, args)
+
+            if tool_name == "cat":
+                _cp = args.get("path", "")
+                if not os.path.isabs(_cp):
+                    _cp = os.path.join(os.getenv("FOLDER_PATH", "."), _cp)
+                files_read_this_turn.add(os.path.normpath(_cp))
+
+            if tool_name == "edit_file":
+                written_content = args.get("content", "")
+                if pre_edit_path and len(written_content) < 80:
+                    console.print(f"  [bold red]⚠ Truncated write: {args.get('path')} has only {len(written_content)} chars[/bold red]")
+                    tool_result += (
+                        "\n\n[⚠ AGENT ERROR: File content is too short/incomplete. "
+                        "You MUST write the COMPLETE file in one edit_file call — never truncate. "
+                        "Delete and rewrite with full production-ready code.]"
+                    )
+
+        except Exception as e:
+            tool_result = f"Error executing tool (likely invalid JSON arguments): {e}"
+
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call.id,
+            "name": tool_name,
+            "content": str(tool_result)
+        })
+
+        # Self-Heal Triggers
+        if tool_name in ("run_command", "run_background_command"):
+            result_lower = str(tool_result).lower()
+            error_signals = ['traceback', 'error:', 'exception', 'failed', 'syntaxerror', 'modulenotfounderror', 'importerror', 'nameerror', 'typeerror', 'exit code 1', 'exit code 2']
+            if any(sig in result_lower for sig in error_signals):
+                try:
+                    from core.self_heal import analyze_command_output
+                    analysis = analyze_command_output(str(tool_result))
+                    if analysis["has_errors"]:
+                        console.print(f"[bold red]  [Self-Heal] {analysis['error_type']}: {analysis['error_summary'][:80]}[/bold red]")
+                        console.print(f"[dim]  Suggested: {analysis['suggested_action']}[/dim]")
+                except Exception:
+                    console.print("[bold red]  [Self-Heal] Error detected in command output. Agent will attempt automatic fix...[/bold red]")
+
+        if tool_name in ("edit_file", "replace_in_file", "apply_diff", "batch_edit_files"):
+            try:
+                from core.self_heal import check_and_heal
+                edited_path = args.get("path", "")
+                if edited_path and edited_path.endswith('.py'):
+                    heal_report = check_and_heal(edited_path)
+                    if heal_report.get("needs_fix") and heal_report.get("error_report"):
+                        messages.append({
+                            "role": "user",
+                            "content": heal_report["error_report"]
+                        })
+            except Exception:
+                pass
 
 
 def call_llm_with_tools(messages):
@@ -410,134 +530,9 @@ def call_llm_with_tools(messages):
             )
 
             if all_parallel:
-                # ── Parallel execution for read-only tool batches ──
-                console.print(f"  [dim]⚡ Parallel: {len(tool_calls_list)} tools simultaneously[/dim]")
-                results_ordered = [None] * len(tool_calls_list)
-
-                def _run_parallel(idx, tc):
-                    try:
-                        args = _safe_parse_json(tc.function.arguments)
-                        result = execute_tool(tc.function.name, args)
-                        results_ordered[idx] = (tc, args, result)
-                    except Exception as e:
-                        results_ordered[idx] = (tc, {}, f"Error: {e}")
-
-                threads = [threading.Thread(target=_run_parallel, args=(i, tc), daemon=True)
-                           for i, tc in enumerate(tool_calls_list)]
-                for t in threads:
-                    t.start()
-                for t in threads:
-                    t.join()
-
-                for tc, args, tool_result in results_ordered:
-                    tool_name = tc.function.name
-                    broadcast_sync("tool", f"Parallel: {tool_name}({tc.function.arguments[:80]})")
-                    if tool_name == "cat":
-                        _cp = args.get("path", "")
-                        if not os.path.isabs(_cp):
-                            _cp = os.path.join(os.getenv("FOLDER_PATH", "."), _cp)
-                        files_read_this_turn.add(os.path.normpath(_cp))
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "name": tool_name,
-                        "content": str(tool_result)
-                    })
+                _execute_parallel_tools(tool_calls_list, messages, files_read_this_turn)
             else:
-                # ── Sequential execution with guards and self-heal ──
-                for tool_call in tool_calls_list:
-                    tool_name = tool_call.function.name
-                    try:
-                        raw_args = tool_call.function.arguments
-                        args = _safe_parse_json(raw_args)
-                        broadcast_sync("tool", f"Executing: {tool_name}({raw_args})")
-
-                        # Resolve edit_file target path
-                        pre_edit_path = None
-                        pre_edit_exists = False
-                        if tool_name == "edit_file":
-                            _ep = args.get("path", "")
-                            if not os.path.isabs(_ep):
-                                _ep = os.path.join(os.getenv("FOLDER_PATH", "."), _ep)
-                            pre_edit_path = os.path.normpath(_ep)
-                            pre_edit_exists = os.path.exists(pre_edit_path)
-
-                        # BLOCK edit_file on existing files — force replace_in_file/apply_diff
-                        if tool_name == "edit_file" and pre_edit_exists:
-                            rel = args.get("path", pre_edit_path)
-                            console.print(f"  [bold red]✗ Blocked edit_file on existing file '{rel}' — use replace_in_file or apply_diff[/bold red]")
-                            tool_result = (
-                                f"BLOCKED: '{rel}' already exists. edit_file is for NEW files only. "
-                                "To modify an existing file you MUST use replace_in_file (single change) "
-                                "or apply_diff (multiple changes). First cat the file to read its current "
-                                "content, then use the correct tool."
-                            )
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "name": tool_name,
-                                "content": tool_result
-                            })
-                            continue
-
-                        tool_result = execute_tool(tool_name, args)
-
-                        # Track cat reads for guard
-                        if tool_name == "cat":
-                            _cp = args.get("path", "")
-                            if not os.path.isabs(_cp):
-                                _cp = os.path.join(os.getenv("FOLDER_PATH", "."), _cp)
-                            files_read_this_turn.add(os.path.normpath(_cp))
-
-                        # Detect truncated file write (new files)
-                        if tool_name == "edit_file":
-                            written_content = args.get("content", "")
-                            if pre_edit_path and len(written_content) < 80:
-                                console.print(f"  [bold red]⚠ Truncated write: {args.get('path')} has only {len(written_content)} chars[/bold red]")
-                                tool_result += (
-                                    "\n\n[⚠ AGENT ERROR: File content is too short/incomplete. "
-                                    "You MUST write the COMPLETE file in one edit_file call — never truncate. "
-                                    "Delete and rewrite with full production-ready code.]"
-                                )
-
-                    except Exception as e:
-                        tool_result = f"Error executing tool (likely invalid JSON arguments): {e}"
-
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": tool_name,
-                        "content": str(tool_result)
-                    })
-
-                    # SELF-HEALING: If run_command returned an error, inject an auto-fix prompt
-                    if tool_name in ("run_command", "run_background_command"):
-                        result_lower = str(tool_result).lower()
-                        error_signals = ['traceback', 'error:', 'exception', 'failed', 'syntaxerror', 'modulenotfounderror', 'importerror', 'nameerror', 'typeerror', 'exit code 1', 'exit code 2']
-                        if any(sig in result_lower for sig in error_signals):
-                            try:
-                                from core.self_heal import analyze_command_output
-                                analysis = analyze_command_output(str(tool_result))
-                                if analysis["has_errors"]:
-                                    console.print(f"[bold red]  [Self-Heal] {analysis['error_type']}: {analysis['error_summary'][:80]}[/bold red]")
-                                    console.print(f"[dim]  Suggested: {analysis['suggested_action']}[/dim]")
-                            except Exception:
-                                console.print("[bold red]  [Self-Heal] Error detected in command output. Agent will attempt automatic fix...[/bold red]")
-
-                    # SELF-HEAL on file edits: auto-lint after writes
-                    if tool_name in ("edit_file", "replace_in_file", "apply_diff", "batch_edit_files"):
-                        try:
-                            from core.self_heal import check_and_heal
-                            edited_path = args.get("path", "")
-                            if edited_path and edited_path.endswith('.py'):
-                                heal_report = check_and_heal(edited_path)
-                                if heal_report.get("needs_fix") and heal_report.get("error_report"):
-                                    messages.append({
-                                        "role": "user",
-                                        "content": heal_report["error_report"]
-                                    })
-                        except Exception:
-                            pass
+                _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn)
         else:
             content = message.content.strip() if message.content else ""
 
