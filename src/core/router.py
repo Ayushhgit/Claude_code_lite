@@ -16,7 +16,7 @@ def llm_router(text: str) -> str:
         }
     ]
 
-    result = generate(messages).strip().lower()
+    result = generate(messages, task_type="fast").strip().lower()
 
     if result not in MODES:
         return "edit"  
@@ -35,7 +35,7 @@ def detect_scope(text: str) -> str:
         }
     ]
 
-    result = generate(messages).strip().lower()
+    result = generate(messages, task_type="fast").strip().lower()
 
     if result not in ["all", "single"]:
         return "single"
