@@ -86,6 +86,7 @@ HELP_TEXT = """
 | Command          | Description                                        |
 |------------------|----------------------------------------------------|
 | `/help`          | Show this help menu                                |
+| `/dashboard`     | Launch real-time Web Command Center (thought stream + graph) |
 | `/clear`         | Reset context window                               |
 | `/compact`       | Force-compact context to save tokens               |
 | `/status`        | Show session stats                                 |
@@ -107,10 +108,11 @@ HELP_TEXT = """
 """
 
 SLASH_COMMANDS = {
-    "/help":    "Show all available commands",
-    "/clear":   "Reset context window and start fresh",
-    "/compact": "Force-compact context to save tokens",
-    "/status":  "Show session stats (turns, tokens, model, git branch)",
+    "/help":      "Show all available commands",
+    "/dashboard": "Launch real-time Web Command Center in browser (FastAPI + WebSocket)",
+    "/clear":     "Reset context window and start fresh",
+    "/compact":   "Force-compact context to save tokens",
+    "/status":    "Show session stats (turns, tokens, model, git branch)",
     "/model":   "List models / switch model or provider / enable auto-routing",
     "/map":     "Show AST-based codebase architecture map",
     "/scan":    "Deep scan codebase and build brain document",
@@ -383,7 +385,12 @@ def main():
             continue
         
         if cmd == "/dashboard" or cmd == "/daemon":
-            console.print("[bold green]🚀 Starting REVI Command Center & CI/CD Webhook server at http://localhost:8000[/bold green]")
+            msg = (
+                "[bold green]🚀 Starting REVI Command Center & CI/CD Webhook server[/bold green]\n"
+                "URL: [bold cyan]http://localhost:8000[/bold cyan]\n"
+                "[dim]The dashboard shows a live thought stream and 3D codebase graph.[/dim]"
+            )
+            console.print(Panel(msg, title="[bold blue]🌐 Dashboard", border_style="blue"))
             import subprocess
             import sys
             import webbrowser
