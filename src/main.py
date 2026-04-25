@@ -223,6 +223,13 @@ def main():
         console.print("[bold red]✗ FOLDER_PATH not set in .env[/bold red]")
         return
 
+    # Clear scratchpad for fresh session
+    try:
+        from core.scratchpad import clear_scratchpad
+        clear_scratchpad(path)
+    except Exception as e:
+        console.print(f"[dim yellow]Warning: could not clear scratchpad: {e}[/dim yellow]")
+
     messages = init_messages(path)
     project_name = os.path.basename(path)
     turn_count = 0
@@ -241,15 +248,17 @@ def main():
         complete_while_typing=True,
     )
 
-    while True:
-        try:
-            instruction = session.prompt(
-                [("class:prompt", f"{project_name}"), ("class:arrow", " > ")],
-                multiline=False,
-            )
-        except (KeyboardInterrupt, EOFError):
-            console.print("\n[bold red]✗ Session ended.[/bold red]")
-            break
+    try:
+        while True:
+            try:
+                instruction = session.prompt(
+                    [("class:prompt", f"{project_name}"), ("class:arrow", " > ")],
+                    multiline=False,
+                )
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[bold red]✗ Session ended.[/bold red]")
+                break
+
             
         cmd = instruction.strip().lower()
         
@@ -520,6 +529,13 @@ def main():
         ))
         console.print()
 
+    finally:
+        # Guarantee scratchpad cleanup on any exit
+        try:
+            from core.scratchpad import clear_scratchpad
+            clear_scratchpad(path)
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     main()

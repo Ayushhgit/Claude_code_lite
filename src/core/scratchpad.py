@@ -168,6 +168,14 @@ def clear_completed(directory=None) -> str:
     return f"Cleared {before - after} completed tasks. {after} remaining."
 
 
+def clear_scratchpad(directory=None) -> str:
+    """Clear all tasks and notes, completely resetting the scratchpad."""
+    data = {"tasks": [], "notes": [], "session_goal": ""}
+    _save_tasks(data, directory)
+    _regenerate_scratchpad(data, directory)
+    return "Scratchpad cleared."
+
+
 # ─── Scratchpad Rendering ────────────────────────────────────────────────────
 
 def _regenerate_scratchpad(data, directory=None):
