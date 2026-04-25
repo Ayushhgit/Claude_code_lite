@@ -209,6 +209,8 @@ def run_in_sandbox(command: str, workspace_path: str = None, timeout: int = None
 
 def _run_local(command: str, workspace_path: str, timeout: int) -> dict:
     """Fallback: run command locally without Docker."""
+    from utils.ui import emit
+    emit("warning", "⚠ SECURITY RISK: Executing command on local host. Sandbox is disabled or Docker is unavailable.", style="bold red")
     try:
         result = subprocess.run(
             command, shell=True, cwd=workspace_path,
