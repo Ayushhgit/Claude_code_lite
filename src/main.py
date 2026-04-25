@@ -250,17 +250,15 @@ def main():
         complete_while_typing=True,
     )
 
-    try:
-        while True:
-            try:
-                instruction = session.prompt(
-                    [("class:prompt", f"{project_name}"), ("class:arrow", " > ")],
-                    multiline=False,
-                )
-            except (KeyboardInterrupt, EOFError):
-                console.print("\n[bold red]✗ Session ended.[/bold red]")
-                break
-
+    while True:
+        try:
+            instruction = session.prompt(
+                [("class:prompt", f"{project_name}"), ("class:arrow", " > ")],
+                multiline=False,
+            )
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[bold red]✗ Session ended.[/bold red]")
+            break
             
         cmd = instruction.strip().lower()
         
@@ -536,13 +534,20 @@ def main():
         ))
         console.print()
 
+    # The while True loop ends here when 'break' is called
+
+def main_wrapper():
+    try:
+        main()
     finally:
         # Guarantee scratchpad cleanup on any exit
         try:
-            from core.scratchpad import clear_scratchpad
-            clear_scratchpad(path)
+            path = __import__("os").getenv("FOLDER_PATH")
+            if path:
+                from core.scratchpad import clear_scratchpad
+                clear_scratchpad(path)
         except Exception:
             pass
 
 if __name__ == "__main__":
-    main()
+    main_wrapper()
