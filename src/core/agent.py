@@ -212,28 +212,45 @@ def _parse_xml_tool_calls(text):
         return {"tool_name": tool_name, "args": params}
     return None
 
-def _select_tools_for_intent(messages, task_type="mid"):
-    """Dynamically select relevant tools based on the user's latest message.
+def _select_tools_for_intent(messages, task_type="mid", role=None):
+    """Dynamically select relevant tools based on the user's latest message or strict Role.
     
-    Small models fail with 24+ tools. This analyzes intent keywords and
-    returns only the 8-12 tools relevant to the current task, keeping
-    the CORE set always available.
+    Small models fail with 24+ tools. This analyzes intent keywords or applies
+    strict role-based gating to return only the tools relevant to the current task.
     """
     from core.tools import CORE_TOOLS_SCHEMA, TOOLS_SCHEMA
     
     # Feature 1: Extreme Tool Pruning for fast/small models
     if task_type == "fast":
         return CORE_TOOLS_SCHEMA
-    
-    # Get the latest user message
+
+    # --- Role-Based Tool Routing ---
+    # If a specific persona/role is executing, strictly limit tools to prevent hallucination.
+    if role:
+        ROLE_TOOL_MAP = {
+            "planner": [], # Architect/Planner needs 0 tools, just thinks.
+            "reviewer": ["cat", "grep", "lint_check", "run_tests", "sandbox_status", "read_url"], # Read/Verify only
+            "editor": ["cat", "replace_in_file", "edit_file", "apply_diff", "lint_check", "batch_edit_files"], # Focused writes
+            "researcher": ["cat", "grep", "get_ast_map", "codebase_search", "find_references", "websearch", "arxiv_search"], # Discovery
+            "runner": ["run_command", "run_background_command", "git_command", "sandbox_status"], # Execution
+            "autonomous": [t["function"]["name"] for t in TOOLS_SCHEMA] # Everything
+        }
+        
+        allowed_names = ROLE_TOOL_MAP.get(role.lower())
+        if allowed_names is not None:
+            # If the role needs no tools (like planner), return empty list to disable tools
+            if len(allowed_names) == 0:
+                return []
+            return [t for t in TOOLS_SCHEMA if t["function"]["name"] in allowed_names]
+
+    # Get the latest user message (Fallback intent routing if no specific role)
     user_msg = ""
     for msg in reversed(messages):
         if msg.get("role") == "user" and not msg.get("content", "").startswith("["):
             user_msg = msg.get("content", "").lower()
             break
     
-    # Always start with core tools (cat, ls, edit_file, run_command, grep, 
-    # get_repo_map, replace_in_file, ask_human, codebase_search, git_command)
+    # Always start with core tools for general tasks
     core_names = {t["function"]["name"] for t in CORE_TOOLS_SCHEMA}
     
     # Build a keyword → tool name mapping for advanced tools
@@ -506,17 +523,20 @@ def _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn):
                 pass
 
 
-def call_llm_with_tools(messages, task_type="mid"):
+def call_llm_with_tools(messages, task_type="mid", role=None):
     bad_retries = 0
     rate_retries = 0
     retry_msg_count = 0  # Track how many error-correction messages we injected
     files_read_this_turn = set()  # Read-before-edit guard: track cat'd paths
     
     # Dynamic tool selection based on intent (Extreme pruning for 'fast' models)
-    active_tools = _select_tools_for_intent(messages, task_type=task_type)
+    active_tools = _select_tools_for_intent(messages, task_type=task_type, role=role)
     tool_count = len(active_tools)
-    tool_names = [t["function"]["name"] for t in active_tools]
-    console.print(f"  [dim]🔧 {tool_count} tools loaded: {', '.join(tool_names[:6])}{'...' if tool_count > 6 else ''}[/dim]")
+    if active_tools:
+        tool_names = [t["function"]["name"] for t in active_tools]
+        console.print(f"  [dim]🔧 Role '{role or 'auto'}': {tool_count} tools loaded: {', '.join(tool_names[:6])}{'...' if tool_count > 6 else ''}[/dim]")
+    else:
+        console.print(f"  [dim]🔧 Role '{role or 'auto'}': 0 tools loaded (Thinking Mode)[/dim]")
     
     while True:
         try:
@@ -959,7 +979,7 @@ YOUR EXECUTION INSTRUCTIONS:
                     review_feedback += f"\n- [{issue.get('severity', '?')}] {issue.get('description', '')} -> Fix: {issue.get('fix', '')}"
                 review_feedback += "\n\nPlease fix these issues. Read the affected files first, make the corrections, then lint_check each one."
                 messages.append({"role": "user", "content": review_feedback})
-                fix_result = call_llm_with_tools(messages, task_type="review")
+                fix_result = call_llm_with_tools(messages, task_type="review", role="reviewer")
                 result = fix_result  # line 964 appends the final result
     except Exception:
         pass
@@ -988,7 +1008,7 @@ YOUR EXECUTION INSTRUCTIONS:
                     "4. Then run `verify_project` to confirm everything passes."
                 )
                 messages.append({"role": "user", "content": fix_prompt})
-                fix_result = call_llm_with_tools(messages, task_type="mid")
+                fix_result = call_llm_with_tools(messages, task_type="mid", role="editor")
                 result = fix_result  # line 964 appends the final result
             else:
                 console.print(f"  [bold green]✅ Verification PASSED ({verify_report.get('summary', '')})[/bold green]")
