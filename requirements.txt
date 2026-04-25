@@ -2,7 +2,8 @@ groq
 python-dotenv
 chromadb
 sentence-transformers
-duckduckgo-search
+# duckduckgo-search (deprecated)
+ddgs
 requests
 beautifulsoup4
 rich

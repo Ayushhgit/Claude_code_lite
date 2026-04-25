@@ -362,7 +362,7 @@ def apply_diff_tool(path: str, diffs: list) -> str:
 def websearch_tool(query: str) -> str:
     """Search the web for information."""
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=5))
             
@@ -377,7 +377,7 @@ def websearch_tool(query: str) -> str:
             
         return output
     except ImportError:
-        return "Error: duckduckgo-search package is not installed. Please run 'pip install duckduckgo-search'."
+        return "Error: ddgs package is not installed. Please run 'pip install ddgs'."
     except Exception as e:
         return f"Error performing web search: {e}"
 

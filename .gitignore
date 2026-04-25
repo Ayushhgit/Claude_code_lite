@@ -63,6 +63,7 @@ poetry.lock
 groq-cache/
 .revi/
 .claude/
+test_folder/
 
 # Large model files
 *.joblib
