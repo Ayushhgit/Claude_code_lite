@@ -414,7 +414,7 @@ def _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn):
                 pass
 
 
-def call_llm_with_tools(messages):
+def call_llm_with_tools(messages, task_type="mid"):
     bad_retries = 0
     rate_retries = 0
     retry_msg_count = 0  # Track how many error-correction messages we injected
@@ -429,7 +429,7 @@ def call_llm_with_tools(messages):
     while True:
         try:
             with spinner:
-                message = generate(messages, tools=active_tools)
+                message = generate(messages, tools=active_tools, task_type=task_type)
             # Success! Clean up any retry messages we injected
             if retry_msg_count > 0:
                 for _ in range(retry_msg_count):
@@ -465,7 +465,7 @@ def call_llm_with_tools(messages):
                 # Last resort: text-only (NO tools)
                 console.print("  [bold yellow]⚠ Falling back to text-only response (context preserved)...[/bold yellow]")
                 try:
-                    message = generate(messages, tools=None)
+                    message = generate(messages, tools=None, task_type=task_type)
                     result = message.content.strip() if message.content else "Error: Agent could not generate a response."
                     # Preserve context by appending the response
                     messages.append({"role": "assistant", "content": result})
@@ -478,7 +478,7 @@ def call_llm_with_tools(messages):
                 console.print("  [bold yellow]⚠ Retrying with reduced tool set (context preserved)...[/bold yellow]")
                 from core.tools import CORE_TOOLS_SCHEMA
                 try:
-                    message = generate(messages, tools=CORE_TOOLS_SCHEMA)
+                    message = generate(messages, tools=CORE_TOOLS_SCHEMA, task_type=task_type)
                     bad_retries = 0
                     # Fall through to tool processing below
                 except groq.BadRequestError:
@@ -799,7 +799,14 @@ YOUR EXECUTION INSTRUCTIONS:
         "content": instruction
     })
     
-    result = call_llm_with_tools(messages)
+    # If we engaged the architect, or if it's a simple task, we use the detected complexity for model routing
+    try:
+        from core.planner import detect_complexity
+        complexity = detect_complexity(instruction)
+    except Exception:
+        complexity = "mid"
+        
+    result = call_llm_with_tools(messages, task_type=complexity)
     
     # REVIEWER PASS (for complex/medium tasks)
     try:
@@ -837,7 +844,7 @@ YOUR EXECUTION INSTRUCTIONS:
                     review_feedback += f"\n- [{issue.get('severity', '?')}] {issue.get('description', '')} -> Fix: {issue.get('fix', '')}"
                 review_feedback += "\n\nPlease fix these issues. Read the affected files first, make the corrections, then lint_check each one."
                 messages.append({"role": "user", "content": review_feedback})
-                fix_result = call_llm_with_tools(messages)
+                fix_result = call_llm_with_tools(messages, task_type="review")
                 result = fix_result  # line 964 appends the final result
     except Exception:
         pass
@@ -866,7 +873,7 @@ YOUR EXECUTION INSTRUCTIONS:
                     "4. Then run `verify_project` to confirm everything passes."
                 )
                 messages.append({"role": "user", "content": fix_prompt})
-                fix_result = call_llm_with_tools(messages)
+                fix_result = call_llm_with_tools(messages, task_type="mid")
                 result = fix_result  # line 964 appends the final result
             else:
                 console.print(f"  [bold green]✅ Verification PASSED ({verify_report.get('summary', '')})[/bold green]")
@@ -897,7 +904,7 @@ YOUR EXECUTION INSTRUCTIONS:
             fix_result = call_llm_with_tools(messages + [{
                 "role": "user",
                 "content": "The user reviewed your work and wants you to fix or improve it. Re-read the files you just edited, find any issues, and fix them. Then re-run any tests to verify."
-            }])
+            }], task_type="mid")
             messages.append({"role": "assistant", "content": fix_result})
             pruned = prune_messages(messages)
             messages.clear()
