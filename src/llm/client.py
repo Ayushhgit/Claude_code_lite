@@ -102,6 +102,15 @@ def _generate_groq(messages, tools, task_type="mid"):
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
 
+    # Feature 3: Constrained Decoding for small models
+    # When using fast/small models for classification (no tools), force JSON mode
+    # to guarantee parseable structured output
+    if task_type == "fast" and not tools:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    # Lower temperature for fast models to reduce hallucination
+    temperature = 0.1 if task_type == "fast" else 0.2
+
     last_model = None
     exhausted_count = 0
 
@@ -116,7 +125,7 @@ def _generate_groq(messages, tools, task_type="mid"):
         try:
             response = client.chat.completions.create(
                 model=model,
-                temperature=0.2,
+                temperature=temperature,
                 messages=_sanitize_messages(messages),
                 **kwargs
             )
