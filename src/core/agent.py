@@ -95,6 +95,60 @@ PARALLELIZABLE_TOOLS = {
     'get_tasks', 'sandbox_status', 'query_graph',
 }
 
+# Feature 4: Few-Shot Tool Call Examples
+# Small models learn by imitation. These synthetic examples are injected into
+# conversation history to teach the model exactly what a correct tool call looks like.
+FEW_SHOT_EXAMPLES = [
+    {
+        "role": "user",
+        "content": "Read the file src/main.py and then fix the import error."
+    },
+    {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "example_1",
+                "type": "function",
+                "function": {
+                    "name": "cat",
+                    "arguments": '{"path": "src/main.py"}'
+                }
+            }
+        ]
+    },
+    {
+        "role": "tool",
+        "tool_call_id": "example_1",
+        "name": "cat",
+        "content": "import os\nimport sys\nfrom utils import helper  # line 3\n\ndef main():\n    helper.run()"
+    },
+    {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "example_2",
+                "type": "function",
+                "function": {
+                    "name": "replace_in_file",
+                    "arguments": '{"path": "src/main.py", "target": "from utils import helper", "replacement": "from utils.helper import run"}'
+                }
+            }
+        ]
+    },
+    {
+        "role": "tool",
+        "tool_call_id": "example_2",
+        "name": "replace_in_file",
+        "content": "Replaced 1 occurrence in src/main.py"
+    },
+    {
+        "role": "assistant",
+        "content": "I read `src/main.py`, found the broken import on line 3, and replaced `from utils import helper` with `from utils.helper import run` to fix the ImportError."
+    }
+]
+
 def _safe_parse_json(raw: str) -> dict:
     """Try to parse JSON, auto-fixing common LLM mistakes."""
     try:
@@ -121,17 +175,55 @@ def _safe_parse_json(raw: str) -> dict:
     except json.JSONDecodeError:
         pass
     
-    # Give up, raise original error
-    return json.loads(raw)
+    # Give up, raise detailed error for LLM self-correction
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        lines = raw.split('\n')
+        err_line = lines[e.lineno - 1] if 0 < e.lineno <= len(lines) else ""
+        detailed_error = f"JSON Parse Error at line {e.lineno}, column {e.colno}: {e.msg}.\nOffending line: `{err_line}`\nPlease fix your JSON syntax (e.g. check for missing commas or unescaped quotes)."
+        raise ValueError(detailed_error) from e
 
-def _select_tools_for_intent(messages):
+def _parse_xml_tool_calls(text):
+    """Feature 2: XML Fallback — parse tool calls when small models output XML tags instead of JSON.
+    
+    Small models sometimes output tool calls as XML:
+      <tool_name>cat</tool_name><path>main.py</path>
+    This rescues those into proper tool executions.
+    """
+    import re as _re
+    # Pattern: <tool_name>X</tool_name> followed by <param>value</param> pairs
+    tool_match = _re.search(r'<tool_name>\s*(\w+)\s*</tool_name>', text)
+    if not tool_match:
+        return None
+    
+    tool_name = tool_match.group(1)
+    
+    # Extract all <key>value</key> pairs after the tool_name tag
+    param_pattern = _re.compile(r'<(\w+)>\s*(.*?)\s*</\1>', _re.DOTALL)
+    params = {}
+    for match in param_pattern.finditer(text):
+        key = match.group(1)
+        if key == 'tool_name':
+            continue
+        params[key] = match.group(2)
+    
+    if tool_name and params:
+        return {"tool_name": tool_name, "args": params}
+    return None
+
+def _select_tools_for_intent(messages, task_type="mid"):
     """Dynamically select relevant tools based on the user's latest message.
     
     Small models fail with 24+ tools. This analyzes intent keywords and
     returns only the 8-12 tools relevant to the current task, keeping
     the CORE set always available.
     """
-    from core.tools import CORE_TOOLS_SCHEMA
+    from core.tools import CORE_TOOLS_SCHEMA, TOOLS_SCHEMA
+    
+    # Feature 1: Extreme Tool Pruning for fast/small models
+    if task_type == "fast":
+        return CORE_TOOLS_SCHEMA
     
     # Get the latest user message
     user_msg = ""
@@ -420,8 +512,8 @@ def call_llm_with_tools(messages, task_type="mid"):
     retry_msg_count = 0  # Track how many error-correction messages we injected
     files_read_this_turn = set()  # Read-before-edit guard: track cat'd paths
     
-    # Dynamic tool selection based on intent
-    active_tools = _select_tools_for_intent(messages)
+    # Dynamic tool selection based on intent (Extreme pruning for 'fast' models)
+    active_tools = _select_tools_for_intent(messages, task_type=task_type)
     tool_count = len(active_tools)
     tool_names = [t["function"]["name"] for t in active_tools]
     console.print(f"  [dim]🔧 {tool_count} tools loaded: {', '.join(tool_names[:6])}{'...' if tool_count > 6 else ''}[/dim]")
@@ -576,6 +668,22 @@ def call_llm_with_tools(messages, task_type="mid"):
                         )
                     })
                     continue
+
+            # Feature 2: XML Fallback — rescue tool calls from XML tags in text output
+            xml_call = _parse_xml_tool_calls(content)
+            if xml_call:
+                console.print(f"  [bold yellow]⚠ XML tool call detected: {xml_call['tool_name']}. Executing...[/bold yellow]")
+                try:
+                    xml_result = execute_tool(xml_call["tool_name"], xml_call["args"])
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({
+                        "role": "user",
+                        "content": f"Tool result for {xml_call['tool_name']}: {str(xml_result)[:2000]}\n\nIMPORTANT: In the future, use the tool-use interface directly instead of writing XML tags in your response."
+                    })
+                    continue
+                except Exception as e:
+                    console.print(f"  [dim]XML rescue failed: {e}[/dim]")
+
             return content
 
 
@@ -647,7 +755,7 @@ def init_messages(path):
     except Exception:
         pass
 
-    return [
+    messages = [
         {
             "role": "system",
             "content": f"""Autonomous AI software engineer. Root: {path} (Windows — use Windows/relative paths only).
@@ -683,6 +791,13 @@ MEMORY (.agent_memory.md):
 """
         }
     ]
+
+    # Feature 4: Few-Shot Tool Examples
+    # Inject synthetic examples so small models learn correct tool-call format by imitation.
+    # This dramatically improves tool-calling accuracy for <20B parameter models.
+    messages += FEW_SHOT_EXAMPLES
+
+    return messages
 
 def _estimate_tokens(messages):
     """Rough token estimate: ~4 chars per token."""
