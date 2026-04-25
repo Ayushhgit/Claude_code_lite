@@ -258,24 +258,21 @@ def run_command_tool(command: str) -> str:
     
     cwd = os.getenv("FOLDER_PATH", ".")
     try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            encoding='utf-8',
-            errors='replace'
-        )
-        output = result.stdout + result.stderr
-        if not output.strip():
-            output = f"Command '{command}' executed successfully with no output (Exit code {result.returncode})."
+        from core.sandbox import run_in_sandbox
+        # Use sandbox for execution if enabled, else falls back to local
+        result = run_in_sandbox(command, cwd, timeout=120)
+        output = result["stdout"] + result["stderr"]
         
+        if not output.strip() and result["error"] is None:
+            output = f"Command '{command}' executed successfully with no output (Exit code {result['exit_code']})."
+        elif result["error"]:
+            output = f"Command execution failed: {result['error']}\n{output}"
+            
         # Display output to user in a styled box
         display_output = output.strip()[:2000]  # Show first 2000 chars to user
-        exit_style = "green" if result.returncode == 0 else "red"
-        console.print(f"  [dim]┌─ Output (exit code: [{exit_style}]{result.returncode}[/{exit_style}]) ─[/dim]")
+        exit_style = "green" if result["exit_code"] == 0 else "red"
+        sandbox_tag = "[🐳 Sandboxed]" if result.get("sandboxed") else "[💻 Local]"
+        console.print(f"  [dim]┌─ {sandbox_tag} Output (exit code: [{exit_style}]{result['exit_code']}[/{exit_style}]) ─[/dim]")
         for line in display_output.split('\n')[:30]:  # Max 30 lines displayed
             console.print(f"  [dim]│[/dim] {line}")
         if len(output.strip()) > 2000 or output.count('\n') > 30:
@@ -283,9 +280,6 @@ def run_command_tool(command: str) -> str:
         console.print("  [dim]└────[/dim]")
         
         return output[:8000]  # Full output to agent for analysis
-    except subprocess.TimeoutExpired:
-        console.print("  [bold red]  ⏱ Command timed out after 120s[/bold red]")
-        return "Error: Command timed out after 120 seconds."
     except Exception as e:
         console.print(f"  [bold red]  ✗ {e}[/bold red]")
         return f"Error executing command: {e}"
