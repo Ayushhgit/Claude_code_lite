@@ -3,6 +3,8 @@ import os
 import json
 import asyncio
 from rich.console import Console
+from rich.panel import Panel
+from rich.markdown import Markdown
 
 if sys.platform == "win32":
     try:
@@ -17,16 +19,30 @@ console = Console(force_terminal=True)
 def broadcast_sync(msg_type: str, message: str):
     """
     Thread-safe, crash-proof broadcast to Dashboard WebSockets.
-    This function NEVER raises — if the dashboard isn't running, it's a no-op.
     """
     try:
         from server.broadcaster import broadcaster
         if not broadcaster.active_connections:
-            return  # No clients connected, skip entirely
+            return
         
         payload = json.dumps({"type": msg_type, "message": message})
         loop = asyncio.new_event_loop()
         loop.run_until_complete(broadcaster.broadcast(payload))
         loop.close()
     except Exception:
-        pass  # Dashboard not running or import failed — totally fine
+        pass
+
+def emit(event_type: str, payload: str, style: str = None, panel: bool = False, title: str = None):
+    """
+    Unified event emitter.
+    Prints to local CLI with Rich, and broadcasts to Dashboard.
+    """
+    if panel:
+        console.print(Panel(payload, title=title, border_style=style or "blue"))
+    else:
+        if style:
+            console.print(f"[{style}]{payload}[/{style}]")
+        else:
+            console.print(payload)
+            
+    broadcast_sync(event_type, payload)
