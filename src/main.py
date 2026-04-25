@@ -284,10 +284,23 @@ def main():
             continue
             
         if cmd == "/status":
-            from llm import model_router
+            from llm import model_router, key_pool
             current_mode = model_router.get_current_mode()
             last_used = model_router.get_last_used() or "none yet"
             mode_display = f"AUTO → {last_used}" if current_mode == "auto" else f"FIXED: {current_mode}"
+
+            # Build key pool summary
+            total_keys = key_pool.get_key_count()
+            active_idx = key_pool.get_active_key_index()
+            key_statuses = key_pool.get_status()
+            exhausted = sum(1 for k in key_statuses if "exhausted" in k["status"])
+            if total_keys == 0:
+                key_display = "[red]None configured[/red]"
+            elif exhausted > 0:
+                key_display = f"Key {active_idx}/{total_keys} active | {exhausted} exhausted"
+            else:
+                key_display = f"Key {active_idx}/{total_keys} active | all available"
+
             table = Table(title="⚡ Session Status", box=box.ROUNDED, border_style="cyan")
             table.add_column("Metric", style="bold white")
             table.add_column("Value", style="green")
@@ -296,6 +309,7 @@ def main():
             table.add_row("Context Tokens (~)", f"{_estimate_tokens(messages):,}")
             table.add_row("Total Tokens Used (~)", f"{total_tokens_used:,}")
             table.add_row("Provider", os.getenv("PROVIDER", "groq").upper())
+            table.add_row("API Key Pool", key_display)
             table.add_row("Model Mode", mode_display)
             table.add_row("Git Branch", git_branch)
             table.add_row("Workspace", path)

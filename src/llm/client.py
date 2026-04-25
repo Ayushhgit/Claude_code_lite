@@ -2,6 +2,7 @@ import os
 import re
 import time
 from dotenv import load_dotenv
+from llm import key_pool
 
 load_dotenv()
 
@@ -95,70 +96,103 @@ def _generate_groq(messages, tools, task_type="mid"):
     from llm import model_router
     from utils.ui import console
 
-    client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=0)
-
     kwargs = {}
     if tools:
         kwargs["tools"] = tools
         kwargs["tool_choice"] = "auto"
 
-    # Feature 3: Constrained Decoding for small models
-    # When using fast/small models for classification (no tools), force JSON mode
-    # to guarantee parseable structured output
+    # Constrained Decoding for small models: force JSON mode for classification
     if task_type == "fast" and not tools:
         kwargs["response_format"] = {"type": "json_object"}
 
     # Lower temperature for fast models to reduce hallucination
     temperature = 0.1 if task_type == "fast" else 0.2
 
+    total_keys = key_pool.get_key_count()
+    if total_keys == 0:
+        raise RuntimeError("No Groq API keys configured. Set GROQ_API_KEY_1 or GROQ_API_KEY in .env")
+
+    # Outer loop: iterate over API keys
+    # Inner loop: iterate over models per key
+    # This gives us key_count × MAX_ATTEMPTS total attempts
+    keys_tried = 0
     last_model = None
-    exhausted_count = 0
 
-    for attempt in range(MAX_ATTEMPTS):
-        model = model_router.select_model(task_type)
+    while keys_tried <= total_keys:
+        active_key = key_pool.get_active_key()
+        if active_key is None:
+            break
 
-        if last_model and model != last_model:
-            info = model_router.GROQ_MODELS.get(model, {})
-            console.print(f"  [dim]🔄 → {info.get('display', model)} ({model})[/dim]")
-        last_model = model
+        # Build a fresh client for this key
+        client = Groq(api_key=active_key, max_retries=0)
+        model_exhausted_count = 0
 
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                temperature=temperature,
-                messages=_sanitize_messages(messages),
-                **kwargs
-            )
-            message = response.choices[0].message
-            if not tools:
-                return message.content.strip() if message.content else ""
-            return message
+        for attempt in range(MAX_ATTEMPTS):
+            model = model_router.select_model(task_type)
 
-        except Exception as e:
-            if _is_quota_exhausted(e):
-                # Hard quota — mark for 1 hour, try next model
-                model_router.mark_rate_limited(model, retry_after=3600)
-                exhausted_count += 1
-                if exhausted_count >= len(model_router.AUTO_ROTATION):
-                    raise QuotaExhaustedError("All Groq models quota-exhausted.") from e
-                console.print(f"  [red]✗ {model} quota exhausted. Switching...[/red]")
-                continue
+            if last_model and model != last_model:
+                info = model_router.GROQ_MODELS.get(model, {})
+                console.print(f"  [dim]🔄 → {info.get('display', model)} ({model})[/dim]")
+            last_model = model
 
-            if _is_rate_limit(e):
-                retry_after = _extract_retry_after(e)
-                model_router.mark_rate_limited(model, retry_after=retry_after)
-                console.print(f"  [yellow]⏳ {model} rate limited ({retry_after}s cooldown). Switching model...[/yellow]")
-                # No sleep — immediately try a different model
-                continue
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    temperature=temperature,
+                    messages=_sanitize_messages(messages),
+                    **kwargs
+                )
+                message = response.choices[0].message
+                if not tools:
+                    return message.content.strip() if message.content else ""
+                return message
 
-            # Non-rate-limit error: small backoff, retry same model selection
-            wait = min(2 ** attempt * 2, 20)
-            if attempt < MAX_ATTEMPTS - 1:
-                time.sleep(wait)
-                continue
-            raise
+            except Exception as e:
+                if _is_quota_exhausted(e):
+                    # Hard quota on this model — mark it and try next model
+                    model_router.mark_rate_limited(model, retry_after=3600)
+                    model_exhausted_count += 1
+                    console.print(f"  [red]✗ {model} quota exhausted. Switching model...[/red]")
 
-    raise RuntimeError(f"Groq: all {MAX_ATTEMPTS} attempts failed across available models.")
+                    # All models for this key are exhausted — rotate API key
+                    if model_exhausted_count >= len(model_router.AUTO_ROTATION):
+                        key_pool.mark_key_exhausted(active_key)
+                        keys_tried += 1
+                        next_key = key_pool.get_active_key()
+                        if next_key and next_key != active_key and keys_tried < total_keys:
+                            key_hint = f"{next_key[:8]}..."
+                            console.print(
+                                f"  [bold red]✗ All models quota-exhausted on key {key_pool.get_active_key_index()}/{total_keys}."
+                                f" Rotating to next API key ({key_hint})[/bold red]"
+                            )
+                            break  # break inner loop → outer while retries with new key
+                        raise QuotaExhaustedError(
+                            f"All {total_keys} Groq API key(s) and all models are quota-exhausted."
+                        ) from e
+                    continue
+
+                if _is_rate_limit(e):
+                    retry_after = _extract_retry_after(e)
+                    model_router.mark_rate_limited(model, retry_after=retry_after)
+                    console.print(
+                        f"  [yellow]⏳ {model} rate limited ({retry_after}s cooldown). Switching model...[/yellow]"
+                    )
+                    # No sleep — immediately try a different model
+                    continue
+
+                # Non-rate-limit error: small backoff, retry same model selection
+                wait = min(2 ** attempt * 2, 20)
+                if attempt < MAX_ATTEMPTS - 1:
+                    time.sleep(wait)
+                    continue
+                raise
+        else:
+            # Inner for-loop completed without a successful return or a key-rotation break
+            break
+
+    raise QuotaExhaustedError(
+        f"Groq: all API keys ({total_keys}) and models exhausted after maximum attempts."
+    )
 
 
 def _generate_gemini(messages, tools):
