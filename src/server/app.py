@@ -264,6 +264,21 @@ HTML_CONTENT = """
                 <span class="sb-chip-label">via</span>
                 <span class="sb-chip-value" id="sb-provider">—</span>
             </div>
+            <span class="sb-divider">·</span>
+            <div class="sb-chip" title="Session prompt tokens sent to LLM">
+                <span class="sb-chip-label">↑ in</span>
+                <span class="sb-chip-value" id="sb-tok-in" style="color:var(--cyan)">0</span>
+            </div>
+            <span class="sb-divider">·</span>
+            <div class="sb-chip" title="Session completion tokens received from LLM">
+                <span class="sb-chip-label">↓ out</span>
+                <span class="sb-chip-value" id="sb-tok-out" style="color:var(--green)">0</span>
+            </div>
+            <span class="sb-divider">·</span>
+            <div class="sb-chip" title="KV cache hits (saved tokens)">
+                <span class="sb-chip-label">⚡ cache</span>
+                <span class="sb-chip-value" id="sb-cache" style="color:var(--amber)">0</span>
+            </div>
         </div>
         <div class="sb-right">
             <div class="ws-pill">
@@ -377,6 +392,32 @@ HTML_CONTENT = """
         if (autoScroll) logWin.scrollTop = logWin.scrollHeight;
     }
 
+    // ── token budget chips ────────────────────────────────────────────────
+    const sbTokIn  = document.getElementById('sb-tok-in');
+    const sbTokOut = document.getElementById('sb-tok-out');
+    const sbCache  = document.getElementById('sb-cache');
+
+    function fmtK(n) { return n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n); }
+
+    function updateTokenChips(msg) {
+        // msg format: "in=1234 out=456 calls=7 cache=89"
+        const kv = {};
+        msg.split(' ').forEach(p => { const [k,v] = p.split('='); kv[k]=parseInt(v)||0; });
+        if (sbTokIn)  sbTokIn.textContent  = fmtK(kv.in  || 0);
+        if (sbTokOut) sbTokOut.textContent = fmtK(kv.out  || 0);
+        if (sbCache)  sbCache.textContent  = fmtK(kv.cache || 0);
+    }
+
+    // Fetch initial token stats from API
+    function fetchTokens() {
+        fetch('/api/tokens').then(r => r.json()).then(d => {
+            if (sbTokIn)  sbTokIn.textContent  = fmtK(d.prompt_tokens || 0);
+            if (sbTokOut) sbTokOut.textContent = fmtK(d.completion_tokens || 0);
+            if (sbCache)  sbCache.textContent  = fmtK(d.cache_read_tokens || 0);
+        }).catch(() => {});
+    }
+    fetchTokens();
+
     // ── websocket ────────────────────────────────────────────────────────
     const wsDot    = document.getElementById('ws-dot');
     const wsLabel  = document.getElementById('ws-label');
@@ -394,8 +435,14 @@ HTML_CONTENT = """
         ws.onclose   = () => { setWs('err'); setTimeout(connectWs, 3000); };
         ws.onerror   = () => setWs('err');
         ws.onmessage = (e) => {
-            try { const d = JSON.parse(e.data); addEntry(d.type, d.message); }
-            catch (_) {}
+            try {
+                const d = JSON.parse(e.data);
+                if (d.type === 'tokens') {
+                    updateTokenChips(d.message);
+                } else {
+                    addEntry(d.type, d.message);
+                }
+            } catch (_) {}
         };
     }
     connectWs();
@@ -675,6 +722,22 @@ async def get_status():
         "model": os.getenv("MODEL", "unknown"),
         "connected_clients": len(broadcaster.active_connections)
     }
+
+@app.get("/api/tokens")
+async def get_tokens():
+    """Real-time session token budget from LLM API responses."""
+    try:
+        import sys
+        if 'src' not in sys.path:
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+        from llm.client import get_session_stats
+        stats = get_session_stats()
+        stats["total_tokens"] = stats["prompt_tokens"] + stats["completion_tokens"]
+        cache_pct = int(100 * stats["cache_read_tokens"] / stats["prompt_tokens"]) if stats["prompt_tokens"] > 0 else 0
+        stats["cache_hit_pct"] = cache_pct
+        return JSONResponse(stats)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 def start_server():
     import uvicorn

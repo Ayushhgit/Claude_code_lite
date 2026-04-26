@@ -8,6 +8,32 @@ load_dotenv()
 
 MAX_ATTEMPTS = 7  # max total attempts across all model switches
 
+# ── Session token accumulator ────────────────────────────────────────────────
+# Tracks REAL usage from API responses (not char/4 estimates).
+_session_stats: dict = {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "calls": 0,
+    "cache_read_tokens": 0,   # Groq auto-cache hits when available
+}
+
+def get_session_stats() -> dict:
+    """Return copy of real token usage accumulated this session."""
+    return dict(_session_stats)
+
+def reset_session_stats() -> None:
+    _session_stats.update({"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "cache_read_tokens": 0})
+
+def _record_usage(usage) -> None:
+    """Update accumulator from a Groq/Gemini usage object."""
+    if not usage:
+        return
+    _session_stats["prompt_tokens"]     += getattr(usage, "prompt_tokens", 0) or 0
+    _session_stats["completion_tokens"] += getattr(usage, "completion_tokens", 0) or 0
+    _session_stats["calls"]             += 1
+    # Groq exposes prompt_cache_hit_tokens on some models
+    _session_stats["cache_read_tokens"] += getattr(usage, "prompt_cache_hit_tokens", 0) or 0
+
 
 def generate(messages, tools=None, task_type="mid"):
     """
@@ -142,6 +168,7 @@ def _generate_groq(messages, tools, task_type="mid"):
                     messages=_sanitize_messages(messages),
                     **kwargs
                 )
+                _record_usage(getattr(response, "usage", None))
                 message = response.choices[0].message
                 if not tools:
                     return message.content.strip() if message.content else ""
@@ -218,6 +245,7 @@ def _generate_gemini(messages, tools):
                 messages=_sanitize_messages(messages),
                 **kwargs
             )
+            _record_usage(getattr(response, "usage", None))
             message = response.choices[0].message
             if not tools:
                 return message.content.strip() if message.content else ""

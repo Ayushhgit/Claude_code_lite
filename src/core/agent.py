@@ -499,14 +499,6 @@ def call_llm_with_tools(messages, task_type="mid", role=None):
     # Dynamic tool selection based on intent (Extreme pruning for 'fast' models)
     active_tools = _select_tools_for_intent(messages, task_type=task_type, role=role)
     tool_count = len(active_tools)
-
-    # Token-saver: only inject few-shot for small/fast models on first call.
-    # Larger models (mid/complex/review) follow tool schema natively without examples.
-    if task_type == "fast" and not any(m.get("content", "").startswith("[FS]") for m in messages):
-        sys_idx = 1 if messages and messages[0].get("role") == "system" else 0
-        marker = {"role": "user", "content": "[FS]"}
-        injected = [marker] + FEW_SHOT_EXAMPLES
-        messages[sys_idx:sys_idx] = injected
     if active_tools:
         tool_names = [t["function"]["name"] for t in active_tools]
         console.print(f"  [dim]🔧 Role '{role or 'auto'}': {tool_count} tools loaded: {', '.join(tool_names[:6])}{'...' if tool_count > 6 else ''}[/dim]")
@@ -765,8 +757,9 @@ RULES:
         }
     ]
 
-    # Few-shot examples are now lazy-injected only for "fast" task_type
-    # inside call_llm_with_tools — saves ~250 tokens/turn on mid/complex tasks.
+    # Compact few-shot always injected at init for stable prefix (Groq KV cache).
+    # 176 tokens, small models need it, large models ignore it gracefully.
+    messages += FEW_SHOT_EXAMPLES
     return messages
 
 def _estimate_tokens(messages):
@@ -957,9 +950,25 @@ def run_turn(messages, instruction):
     messages.clear()
     messages.extend(pruned)
     
-    # Show token usage
+    # Show real token usage (from API response.usage) + estimate
     token_count = _estimate_tokens(messages)
-    console.print(f"[dim]  📊 Context: ~{token_count} tokens | {len(messages)} messages[/dim]")
+    try:
+        from llm.client import get_session_stats
+        from utils.ui import broadcast_sync
+        stats = get_session_stats()
+        session_in  = stats["prompt_tokens"]
+        session_out = stats["completion_tokens"]
+        cache_hits  = stats["cache_read_tokens"]
+        calls       = stats["calls"]
+        cache_pct   = int(100 * cache_hits / session_in) if session_in > 0 else 0
+        cache_str   = f" | cache {cache_hits:,} tok ({cache_pct}%)" if cache_hits else ""
+        console.print(
+            f"[dim]  📊 Context: ~{token_count} tok | "
+            f"Session: {session_in:,} in / {session_out:,} out over {calls} calls{cache_str}[/dim]"
+        )
+        broadcast_sync("tokens", f"in={session_in} out={session_out} calls={calls} cache={cache_hits}")
+    except Exception:
+        console.print(f"[dim]  📊 Context: ~{token_count} tokens | {len(messages)} messages[/dim]")
     
     # HUMAN-IN-THE-LOOP FEEDBACK
     console.print("[dim]  ─── Press Enter to continue, 'f' to request a fix, or type feedback ───[/dim]")

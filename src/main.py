@@ -232,10 +232,11 @@ def main():
     except Exception as e:
         console.print(f"[dim yellow]Warning: could not clear scratchpad: {e}[/dim yellow]")
 
+    from llm.client import reset_session_stats
+    reset_session_stats()
     messages = init_messages(path)
     project_name = os.path.basename(path)
     turn_count = 0
-    total_tokens_used = 0
     
     # Check git status
     git_branch = _git_cmd(path, "branch --show-current") or "N/A"
@@ -277,8 +278,10 @@ def main():
             continue
         
         if cmd == "/clear":
+            from llm.client import reset_session_stats
             messages = init_messages(path)
             turn_count = 0
+            reset_session_stats()
             console.print("[bold green]✓ Context cleared. Fresh start![/bold green]\n")
             continue
         
@@ -294,11 +297,11 @@ def main():
             
         if cmd == "/status":
             from llm import model_router, key_pool
+            from llm.client import get_session_stats
             current_mode = model_router.get_current_mode()
             last_used = model_router.get_last_used() or "none yet"
             mode_display = f"AUTO → {last_used}" if current_mode == "auto" else f"FIXED: {current_mode}"
 
-            # Build key pool summary
             total_keys = key_pool.get_key_count()
             active_idx = key_pool.get_active_key_index()
             key_statuses = key_pool.get_status()
@@ -310,13 +313,20 @@ def main():
             else:
                 key_display = f"Key {active_idx}/{total_keys} active | all available"
 
-            table = Table(title="⚡ Session Status", box=box.ROUNDED, border_style="cyan")
+            stats = get_session_stats()
+            cache_pct = int(100 * stats["cache_read_tokens"] / stats["prompt_tokens"]) if stats["prompt_tokens"] > 0 else 0
+
+            table = Table(title="Token Budget", box=box.ROUNDED, border_style="cyan")
             table.add_column("Metric", style="bold white")
             table.add_column("Value", style="green")
             table.add_row("Turns Completed", str(turn_count))
             table.add_row("Messages in Context", str(len(messages)))
-            table.add_row("Context Tokens (~)", f"{_estimate_tokens(messages):,}")
-            table.add_row("Total Tokens Used (~)", f"{total_tokens_used:,}")
+            table.add_row("Context Size (~)", f"{_estimate_tokens(messages):,} tok")
+            table.add_row("Session Prompt Tokens", f"{stats['prompt_tokens']:,}")
+            table.add_row("Session Completion Tokens", f"{stats['completion_tokens']:,}")
+            table.add_row("Session Total Tokens", f"{stats['prompt_tokens'] + stats['completion_tokens']:,}")
+            table.add_row("Cache Hit Tokens", f"{stats['cache_read_tokens']:,} ({cache_pct}%)")
+            table.add_row("LLM Calls", str(stats["calls"]))
             table.add_row("Provider", os.getenv("PROVIDER", "groq").upper())
             table.add_row("API Key Pool", key_display)
             table.add_row("Model Mode", mode_display)
@@ -521,7 +531,6 @@ def main():
         console.print(f"  [dim italic]{verb}...[/dim italic]\n")
 
         output = run_turn(messages, instruction)
-        total_tokens_used += _estimate_tokens(messages)
 
         console.print()
         console.print(Panel(
