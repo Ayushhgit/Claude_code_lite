@@ -4,6 +4,7 @@ import subprocess
 import uuid
 import ast
 import difflib
+import shlex
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -508,9 +509,14 @@ def git_command_tool(command: str) -> str:
     from utils.ui import console
     cwd = os.getenv("FOLDER_PATH", ".")
     cmd_lower = command.strip().lower()
+    if not cmd_lower:
+        return "Error: git command cannot be empty."
     
     # Block dangerous git operations entirely
-    blocked = ['push --force', 'reset --hard', 'clean -fd', 'branch -D']
+    blocked = [
+        'push --force', 'push -f', 'reset --hard', 'clean -fd',
+        'clean -fdx', 'branch -d', 'checkout --', 'restore --source',
+    ]
     if any(b in cmd_lower for b in blocked):
         console.print(f"\n  [bold red]⚠  Dangerous git command blocked: git {command}[/bold red]")
         console.print("  [dim]Use the terminal directly if you really need this.[/dim]")
@@ -533,8 +539,9 @@ def git_command_tool(command: str) -> str:
             return "Git command rejected by user."
     
     try:
+        git_args = ["git", *shlex.split(command)]
         result = subprocess.run(
-            f"git {command}", shell=True, cwd=cwd,
+            git_args, shell=False, cwd=cwd,
             capture_output=True, text=True, timeout=30,
             encoding='utf-8', errors='replace'
         )

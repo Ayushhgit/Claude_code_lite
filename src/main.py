@@ -4,6 +4,7 @@ import sys
 import time
 import random
 import subprocess
+import shlex
 from dotenv import load_dotenv
 from utils.ui import console
 from rich.panel import Panel
@@ -211,7 +212,7 @@ def _git_cmd(path, cmd):
     """Run a git command and return output."""
     try:
         result = subprocess.run(
-            f"git {cmd}", shell=True, cwd=path,
+            ["git", *shlex.split(cmd)], shell=False, cwd=path,
             capture_output=True, text=True, timeout=15
         )
         return (result.stdout + result.stderr).strip() or "Done (no output)."

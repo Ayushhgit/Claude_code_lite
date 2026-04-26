@@ -327,7 +327,7 @@ def check_and_heal(filepath: str, cwd: str = None) -> dict:
                 console.print(f"  [bold magenta]🕸️ Blast Radius: {len(dependents)} dependent file(s) detected. Warning agent...[/bold magenta]")
             else:
                 report["error_report"] += msg
-    except Exception as e:
+    except Exception:
         pass
 
     return report

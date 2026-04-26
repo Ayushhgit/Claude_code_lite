@@ -7,7 +7,7 @@ import sys
 import subprocess
 
 from llm.client import generate
-from core.tools import TOOLS_SCHEMA, execute_tool
+from core.tools import execute_tool
 from utils.ui import console
 
 import groq
@@ -377,10 +377,14 @@ def _execute_parallel_tools(tool_calls_list, messages, files_read_this_turn):
         except Exception as e:
             results_ordered[idx] = (tc, {}, f"Error: {e}")
 
-    threads = [threading.Thread(target=_run_parallel, args=(i, tc), daemon=True)
-               for i, tc in enumerate(tool_calls_list)]
-    for t in threads: t.start()
-    for t in threads: t.join()
+    threads = [
+        threading.Thread(target=_run_parallel, args=(i, tc), daemon=True)
+        for i, tc in enumerate(tool_calls_list)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
     for tc, args, tool_result in results_ordered:
         tool_name = tc.function.name
@@ -539,10 +543,10 @@ def call_llm_with_tools(messages, task_type="mid", role=None):
                         messages.pop()
                 retry_msg_count = 0
             bad_retries = 0
-        except QuotaExhaustedError as e:
+        except QuotaExhaustedError:
             provider = os.getenv("PROVIDER", "groq").upper()
             console.print(f"  [bold red]✗ {provider} quota exhausted.[/bold red] Switch provider or wait for quota reset.")
-            console.print(f"  [dim]Tip: set PROVIDER=groq in .env to use Groq instead.[/dim]")
+            console.print("  [dim]Tip: set PROVIDER=groq in .env to use Groq instead.[/dim]")
             return f"Error: {provider} API quota exhausted. Check billing/plan or switch PROVIDER in .env."
         except (groq.RateLimitError, openai.RateLimitError):
             wait_time = min(2 ** rate_retries * 5, 60)
@@ -882,7 +886,7 @@ def run_turn(messages, instruction):
         try:
             from core.planner import run_architect, save_plan, format_plan_for_context
             from core.repo_map import get_ast_repo_map
-            console.print(f"  [bold magenta]📐 Complex task — engaging Architect[/bold magenta]")
+            console.print("  [bold magenta]📐 Complex task — engaging Architect[/bold magenta]")
 
             path = os.getenv("FOLDER_PATH", ".")
             repo_context = ""
