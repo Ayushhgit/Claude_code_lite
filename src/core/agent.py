@@ -821,17 +821,21 @@ def prune_messages(messages):
 
     tokens = _estimate_tokens(msgs)
     if tokens > MAX_TOKENS and len(msgs) > 4:
-        system_prompt = msgs[0]
+        # Always preserve: [system(0)] + FEW_SHOT[1..N] as static prefix for KV cache.
+        # Groq caches identical prefixes — dropping few-shot mid-session causes cache miss every turn.
+        fs_len = len(FEW_SHOT_EXAMPLES)
+        static_end = 1 + fs_len          # index of first dynamic message
+        static_prefix = msgs[:static_end]  # system + few-shot (never dropped)
         tail = msgs[-6:]
         while tail and tail[0]["role"] == "tool":
             tail.pop(0)
 
-        dropped_count = len(msgs) - 1 - len(tail)
+        dropped_count = len(msgs) - static_end - len(tail)
         summary_msg = {
             "role": "user",
             "content": f"[compacted {dropped_count} older msgs]"
         }
-        msgs = [system_prompt, summary_msg] + tail
+        msgs = static_prefix + [summary_msg] + tail
         console.print(f"[dim]  >> Compacted: -{dropped_count} msgs ({tokens}→~{_estimate_tokens(msgs)} tok)[/dim]")
 
     return msgs
@@ -876,8 +880,10 @@ def run_turn(messages, instruction):
         "content": instruction
     })
 
-    # Map complexity → task_type for model router
-    task_type = "complex" if complexity == "complex" else ("mid" if complexity == "medium" else "fast")
+    # Map complexity → task_type for model router.
+    # "simple" → "mid" (not "fast") — even simple tasks need a decent model for code edits.
+    # "fast" is reserved for internal sub-calls (router classification, not user turns).
+    task_type = "complex" if complexity == "complex" else "mid"
     result = call_llm_with_tools(messages, task_type=task_type)
 
     # REVIEWER PASS (for complex/medium tasks)
