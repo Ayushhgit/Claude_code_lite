@@ -38,15 +38,15 @@ def cat_tool(path: str, start_line: int = 1, end_line: int = None) -> str:
         start = max(0, start_line - 1) if start_line else 0
         end = min(total_lines, end_line) if end_line else total_lines
         
-        # Enforce max 1000 lines at a time to prevent context overflow
-        if end - start > 1000:
-            end = start + 1000
+        # Enforce max 200 lines at a time to prevent context overflow (targeted reads)
+        if end - start > 200:
+            end = start + 200
             
         snippet = "".join(lines[start:end])
         header = f"--- File: {path} (Lines {start+1}-{end} of {total_lines}) ---\n"
         
         if end < total_lines:
-            header += "Note: Output truncated to 1000 lines. Use start_line and end_line to view more.\n"
+            header += "Note: Output truncated to 200 lines. Use start_line and end_line to paginate further.\n"
             
         return header + snippet
     except Exception as e:
@@ -651,7 +651,7 @@ CORE_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "cat",
-            "description": "Read a file's contents.",
+            "description": "Read a file's contents. STRICT LIMIT: Returns max 200 lines. You MUST paginate using start_line and end_line for large files.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -830,7 +830,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "cat",
-            "description": "Read and return the contents of a specific file.",
+            "description": "Read and return the contents of a specific file. STRICT LIMIT: Returns max 200 lines. You MUST paginate using start_line and end_line for large files.",
             "parameters": {
                 "type": "object",
                 "properties": {

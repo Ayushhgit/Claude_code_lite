@@ -823,15 +823,15 @@ def _estimate_tokens(messages):
 
 def _compress_tool_results(messages):
     """Compress large tool outputs to save context space."""
-    MAX_TOOL_CHARS = 3000
+    MAX_TOOL_CHARS = 15000  # Allow up to ~200 lines of code before truncating
     for msg in messages:
         if msg.get("role") == "tool":
             content = msg.get("content", "")
             if len(content) > MAX_TOOL_CHARS:
                 # Keep first and last portion
-                head = content[:1500]
-                tail = content[-1000:]
-                msg["content"] = f"{head}\n\n... [TRUNCATED {len(content) - 2500} chars to save context] ...\n\n{tail}"
+                head = content[:5000]
+                tail = content[-5000:]
+                msg["content"] = f"{head}\n\n... [TRUNCATED {len(content) - 10000} chars to save context] ...\n\n{tail}"
     return messages
 
 def _summarize_old_turns(messages):
@@ -845,7 +845,7 @@ def _summarize_old_turns(messages):
 
 def prune_messages(messages):
     """Claude Code-style context compaction."""
-    MAX_TOKENS = 12000  # Keep well under most model limits
+    MAX_TOKENS = 8000  # Aggressively drop old turns to keep runs cheap
     
     # Work on a copy so the caller's .clear() doesn't wipe our result
     msgs = [m.copy() for m in messages]
@@ -858,9 +858,9 @@ def prune_messages(messages):
     
     # Step 3: If still too large, drop oldest turns (keeping system + recent)
     tokens = _estimate_tokens(msgs)
-    if tokens > MAX_TOKENS and len(msgs) > 10:
+    if tokens > MAX_TOKENS and len(msgs) > 6:
         system_prompt = msgs[0]
-        tail = msgs[-20:]
+        tail = msgs[-10:]
         
         # Ensure we don't start the tail with a 'tool' role
         while tail and tail[0]["role"] == "tool":
