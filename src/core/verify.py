@@ -18,6 +18,8 @@ This can be triggered:
 """
 
 import os
+import json
+import ast
 import re
 import subprocess
 import sys
@@ -29,6 +31,32 @@ SKIP_DIRS = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 'env',
              '.revi', 'build', 'dist', 'coverage', '.tox', '.mypy_cache'}
 
 
+def _ignored_dir_names(directory: str) -> set:
+    """Return built-in skip dirs plus simple directory entries from .gitignore."""
+    ignored = set(SKIP_DIRS)
+    gitignore_path = os.path.join(directory, ".gitignore")
+    if not os.path.exists(gitignore_path):
+        return ignored
+
+    try:
+        with open(gitignore_path, "r", encoding="utf-8", errors="ignore") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or line.startswith("!"):
+                    continue
+                normalized = line.rstrip("/")
+                if any(ch in normalized for ch in "*?[]") or "/" in normalized:
+                    continue
+                ignored.add(normalized)
+    except OSError:
+        pass
+    return ignored
+
+
+def _prune_dirs(dirs: list, ignored: set) -> None:
+    dirs[:] = [d for d in dirs if d not in ignored and not d.startswith('.')]
+
+
 # ─── Individual Checks ──────────────────────────────────────────────────────
 
 def check_compile(directory: str) -> dict:
@@ -38,8 +66,9 @@ def check_compile(directory: str) -> dict:
     """
     results = {"passed": [], "failed": []}
     
+    ignored = _ignored_dir_names(directory)
     for root, dirs, files in os.walk(directory):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith('.')]
+        _prune_dirs(dirs, ignored)
         for filename in files:
             if filename.endswith('.py'):
                 filepath = os.path.join(root, filename)
@@ -71,8 +100,9 @@ def check_imports(directory: str) -> dict:
     
     # Build a map of all Python module paths in the project
     available_modules = set()
+    ignored = _ignored_dir_names(directory)
     for root, dirs, files in os.walk(directory):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith('.')]
+        _prune_dirs(dirs, ignored)
         for filename in files:
             if filename.endswith('.py'):
                 rel_path = os.path.relpath(os.path.join(root, filename), directory).replace('\\', '/')
@@ -86,9 +116,9 @@ def check_imports(directory: str) -> dict:
                     parent = os.path.relpath(root, directory).replace('\\', '.')
                     if parent != '.':
                         available_modules.add(parent)
-    
-    # Now check each file's imports
-    import_re = re.compile(r'^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))', re.MULTILINE)
+                        parent_parts = parent.split('.')
+                        for i in range(len(parent_parts)):
+                            available_modules.add('.'.join(parent_parts[i:]))
     
     # Known standard library / third-party prefixes to skip
     stdlib_prefixes = {
@@ -96,15 +126,18 @@ def check_imports(directory: str) -> dict:
         'threading', 'pathlib', 'typing', 'abc', 'functools', 'itertools', 'copy',
         'io', 'math', 'random', 'hashlib', 'base64', 'logging', 'traceback',
         'inspect', 'textwrap', 'dataclasses', 'enum', 'contextlib', 'shutil',
+        'shlex', 'webbrowser', 'ast', 'uuid', 'difflib', 'atexit', 'hmac',
+        'asyncio',
         # Third-party packages
         'groq', 'dotenv', 'chromadb', 'sentence_transformers', 'duckduckgo_search',
         'requests', 'bs4', 'rich', 'arxiv', 'prompt_toolkit', 'docker', 'ruff',
         'numpy', 'pandas', 'sklearn', 'torch', 'tensorflow', 'flask', 'fastapi',
-        'pytest', 'httpx', 'pydantic',
+        'pytest', 'httpx', 'pydantic', 'openai', 'filelock', 'networkx', 'ddgs',
+        'uvicorn',
     }
     
     for root, dirs, files in os.walk(directory):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith('.')]
+        _prune_dirs(dirs, ignored)
         for filename in files:
             if filename.endswith('.py'):
                 filepath = os.path.join(root, filename)
@@ -112,9 +145,19 @@ def check_imports(directory: str) -> dict:
                 try:
                     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read()
-                    
-                    for match in import_re.finditer(content):
-                        module_name = match.group(1) or match.group(2)
+
+                    tree = ast.parse(content, filename=filepath)
+                    imported_modules = []
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Import):
+                            imported_modules.extend(alias.name for alias in node.names)
+                        elif isinstance(node, ast.ImportFrom):
+                            if node.level > 0:
+                                continue
+                            if node.module:
+                                imported_modules.append(node.module)
+
+                    for module_name in imported_modules:
                         if not module_name:
                             continue
                         top_level = module_name.split('.')[0]
@@ -132,7 +175,7 @@ def check_imports(directory: str) -> dict:
                             })
                         else:
                             results["passed"].append(f"{rel_path}: {module_name}")
-                except Exception:
+                except (SyntaxError, OSError):
                     pass
     
     return results
@@ -148,12 +191,45 @@ def check_lint(directory: str, files_filter: list = None) -> dict:
     if files_filter:
         targets = [os.path.join(directory, f) for f in files_filter if f.endswith('.py')]
     else:
+        ignored = _ignored_dir_names(directory)
         for root, dirs, files in os.walk(directory):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith('.')]
+            _prune_dirs(dirs, ignored)
             for filename in files:
                 if filename.endswith('.py'):
                     targets.append(os.path.join(root, filename))
-    
+
+    if not targets:
+        return results
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "ruff", "check", *targets, "--output-format", "json"],
+            capture_output=True, text=True, timeout=60, cwd=directory
+        )
+        lint_items = json.loads(proc.stdout or "[]")
+        issue_files = set()
+        for item in lint_items:
+            filename = item.get("filename", "")
+            rel_path = os.path.relpath(filename, directory).replace('\\', '/') if filename else ""
+            issue_files.add(rel_path)
+            location = item.get("location", {}) or {}
+            code = item.get("code") or "RUF"
+            message = item.get("message") or "Ruff issue"
+            line = location.get("row")
+            prefix = f"{code}"
+            if line:
+                prefix += f" at line {line}"
+            results["issues"].append({"file": rel_path, "error": f"{prefix}: {message}"})
+
+        for filepath in targets:
+            rel_path = os.path.relpath(filepath, directory).replace('\\', '/')
+            if rel_path not in issue_files:
+                results["clean"].append(rel_path)
+        return results
+    except (json.JSONDecodeError, FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Fallback: syntax-only check when Ruff is unavailable or fails unexpectedly.
     for filepath in targets:
         if not os.path.exists(filepath):
             continue

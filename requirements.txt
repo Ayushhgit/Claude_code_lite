@@ -10,6 +10,7 @@ rich
 arxiv
 prompt_toolkit
 ruff
+pytest
 docker
 networkx
 fastapi

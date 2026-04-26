@@ -11,6 +11,7 @@ Stored at .revi/scratchpad.md — auto-injected into context.
 import os
 import json
 import datetime
+from filelock import FileLock
 
 
 SCRATCHPAD_DIR = ".revi"
@@ -27,8 +28,6 @@ def _get_tasks_path(directory=None):
     os.makedirs(tasks_dir, exist_ok=True)
     return os.path.join(tasks_dir, TASKS_FILE)
 
-
-from filelock import FileLock
 
 def _load_tasks(directory=None):
     path = _get_tasks_path(directory)
