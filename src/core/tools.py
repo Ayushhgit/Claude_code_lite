@@ -647,916 +647,331 @@ def semantic_replace_tool(path: str, target: str, replacement: str) -> str:
 
 # Minimal tool set for smaller models that can't handle 24+ tools
 CORE_TOOLS_SCHEMA = [
-    {
-        "type": "function",
-        "function": {
-            "name": "cat",
-            "description": "Read a file's contents. STRICT LIMIT: Returns max 200 lines. You MUST paginate using start_line and end_line for large files.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "File path to read."},
-                    "start_line": {"type": "integer", "description": "Optional start line."},
-                    "end_line": {"type": "integer", "description": "Optional end line."},
-                    "line_start": {"type": "integer", "description": "Alias for start_line."},
-                    "line_end": {"type": "integer", "description": "Alias for end_line."}
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "ls",
-            "description": "List directory contents.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {"type": "string", "description": "Directory to list."}
-                },
-                "required": ["directory"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "edit_file",
-            "description": "Create a NEW file with full content. For existing files use replace_in_file or apply_diff instead — edit_file on an existing file is BLOCKED.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "File path (new file only)."},
-                    "content": {"type": "string", "description": "Complete file content. Never truncate."}
-                },
-                "required": ["path", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_command",
-            "description": "Execute a shell command.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "The command to run."}
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "grep",
-            "description": "Search for a regex pattern in files.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {"type": "string", "description": "Directory to search."},
-                    "pattern": {"type": "string", "description": "Regex pattern."}
-                },
-                "required": ["directory", "pattern"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_repo_map",
-            "description": "Get a tree map of the repository.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {"type": "string", "description": "Root directory."}
-                },
-                "required": ["directory"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "replace_in_file",
-            "description": "Replace exact text in an existing file. Use for single changes.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "File path."},
-                    "target": {"type": "string", "description": "Exact text to find (include full lines for context)."},
-                    "replacement": {"type": "string", "description": "Replacement text."}
-                },
-                "required": ["path", "target", "replacement"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "apply_diff",
-            "description": "Apply multiple search/replace blocks to an existing file in one call. Use for multiple changes.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "File path."},
-                    "diffs": {
-                        "type": "array",
-                        "description": "List of {search, replace} blocks.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "search": {"type": "string", "description": "Exact text to find."},
-                                "replace": {"type": "string", "description": "Replacement text."}
-                            },
-                            "required": ["search", "replace"]
-                        }
-                    }
-                },
-                "required": ["path", "diffs"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "ask_human",
-            "description": "Ask the user a question.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string", "description": "Question to ask."}
-                },
-                "required": ["question"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "codebase_search",
-            "description": "Search the codebase using BOTH semantic similarity AND regex. Best tool for finding specific code, functions, or patterns.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "What you're looking for."},
-                    "regex": {"type": "string", "description": "Optional regex pattern."},
-                    "directory": {"type": "string", "description": "Optional subdirectory."}
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "git_command",
-            "description": "Run a git command (e.g., 'status', 'add -A', 'commit -m \"msg\"', 'push').",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "Git subcommand without 'git' prefix."}
-                },
-                "required": ["command"]
-            }
-        }
-    }
+    {"type": "function", "function": {
+        "name": "cat",
+        "description": "Read file (max 200 lines, paginate with start_line/end_line).",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "start_line": {"type": "integer"},
+            "end_line": {"type": "integer"}
+        }, "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "ls",
+        "description": "List directory.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"}}, "required": ["directory"]}}},
+    {"type": "function", "function": {
+        "name": "edit_file",
+        "description": "Create NEW file. Blocked on existing files (use replace_in_file/apply_diff).",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string", "description": "Complete file. Never truncate."}
+        }, "required": ["path", "content"]}}},
+    {"type": "function", "function": {
+        "name": "run_command",
+        "description": "Run shell command.",
+        "parameters": {"type": "object", "properties": {
+            "command": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {
+        "name": "grep",
+        "description": "Regex search across files.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"},
+            "pattern": {"type": "string"}
+        }, "required": ["directory", "pattern"]}}},
+    {"type": "function", "function": {
+        "name": "get_repo_map",
+        "description": "Repo tree map.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"}}, "required": ["directory"]}}},
+    {"type": "function", "function": {
+        "name": "replace_in_file",
+        "description": "Replace exact text in existing file (single change).",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "target": {"type": "string", "description": "Exact text incl. context lines."},
+            "replacement": {"type": "string"}
+        }, "required": ["path", "target", "replacement"]}}},
+    {"type": "function", "function": {
+        "name": "apply_diff",
+        "description": "Multi search/replace in one file.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "diffs": {"type": "array", "items": {"type": "object", "properties": {
+                "search": {"type": "string"}, "replace": {"type": "string"}
+            }, "required": ["search", "replace"]}}
+        }, "required": ["path", "diffs"]}}},
+    {"type": "function", "function": {
+        "name": "ask_human",
+        "description": "Ask user a question.",
+        "parameters": {"type": "object", "properties": {
+            "question": {"type": "string"}}, "required": ["question"]}}},
+    {"type": "function", "function": {
+        "name": "codebase_search",
+        "description": "Hybrid semantic+regex+filename search.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string"},
+            "regex": {"type": "string"},
+            "directory": {"type": "string"}
+        }, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "git_command",
+        "description": "Run git subcommand (no 'git' prefix). Force-push blocked.",
+        "parameters": {"type": "object", "properties": {
+            "command": {"type": "string"}}, "required": ["command"]}}}
 ]
 
 TOOLS_SCHEMA = [
-    {
-        "type": "function",
-        "function": {
-            "name": "cat",
-            "description": "Read and return the contents of a specific file. STRICT LIMIT: Returns max 200 lines. You MUST paginate using start_line and end_line for large files.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "The absolute or relative path to the file to read."
-                    },
-                    "start_line": {
-                        "type": "integer",
-                        "description": "Optional. The line number to start reading from (1-indexed)."
-                    },
-                    "end_line": {
-                        "type": "integer",
-                        "description": "Optional. The line number to stop reading at (1-indexed)."
-                    },
-                    "line_start": {
-                        "type": "integer",
-                        "description": "Alias for start_line."
-                    },
-                    "line_end": {
-                        "type": "integer",
-                        "description": "Alias for end_line."
-                    }
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "grep",
-            "description": "Search for a regular expression pattern across all Python, JS, HTML, and CSS files in a directory.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {
-                        "type": "string",
-                        "description": "The directory to search in."
-                    },
-                    "pattern": {
-                        "type": "string",
-                        "description": "The regex pattern to search for."
-                    }
-                },
-                "required": ["directory", "pattern"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "ls",
-            "description": "List files and folders in a directory.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {
-                        "type": "string",
-                        "description": "The directory to list."
-                    }
-                },
-                "required": ["directory"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "semantic_search",
-            "description": "Search the codebase index for code related to a specific concept or logic.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The natural language query to search for (e.g. 'user authentication logic' or 'database connection setup')."
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "index_codebase",
-            "description": "Scans and indexes all Python, JS, HTML, and CSS files in the given directory into the Vector Database. You MUST run this once before semantic_search works.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {
-                        "type": "string",
-                        "description": "The directory to index."
-                    }
-                },
-                "required": ["directory"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "edit_file",
-            "description": "Create a NEW file only. NEVER use on existing files — it will be BLOCKED. For existing files: use replace_in_file (single change) or apply_diff (multiple changes). Content must be complete — never truncate.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Path to the new file to create."
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Complete file content. Must be the FULL file — no truncation, no placeholders."
-                    }
-                },
-                "required": ["path", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delete_file",
-            "description": "Delete an existing file.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "The path to the file to delete."
-                    }
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_repo_map",
-            "description": "Get a structural tree map of the entire repository. Use this to understand the global structure, find out what folders exist, and see all files at a glance.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {
-                        "type": "string",
-                        "description": "The root directory to map."
-                    }
-                },
-                "required": ["directory"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_command",
-            "description": "Run a shell command in the workspace directory. Use this to install dependencies, run tests, build projects, or use utility scripts.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute."
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "replace_in_file",
-            "description": "Replace a specific snippet of text in a file with new text. Use this instead of edit_file for making small to medium edits in large files.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "The path to the file to modify."
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "The exact string to be replaced. Must match exactly, including indentation and newlines. Include sufficient context (e.g., full lines) to ensure the target is unique in the file."
-                    },
-                    "replacement": {
-                        "type": "string",
-                        "description": "The new string to replace the target with."
-                    }
-                },
-                "required": ["path", "target", "replacement"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "apply_diff",
-            "description": "Apply a set of diff blocks to a file. Useful for making multiple independent edits across a large file simultaneously without rewriting the whole file.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "The path to the file to modify."
-                    },
-                    "diffs": {
-                        "type": "array",
-                        "description": "A list of diff blocks containing search and replace strings.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "search": {
-                                    "type": "string",
-                                    "description": "The exact lines to find and replace. Must match exactly, including indentation and newlines. Include sufficient context (e.g., full lines) to ensure the search string is unique in the file."
-                                },
-                                "replace": {
-                                    "type": "string",
-                                    "description": "The new lines to replace them with."
-                                }
-                            },
-                            "required": ["search", "replace"]
-                        }
-                    }
-                },
-                "required": ["path", "diffs"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "websearch",
-            "description": "Search the internet for documentation, updates, latest news, or coding solutions using DuckDuckGo.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query."
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_url",
-            "description": "Fetch and extract clean text from any URL (e.g., to read documentation pages).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to read."
-                    }
-                },
-                "required": ["url"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_background_command",
-            "description": "Start a long-running shell command in the background (like starting a dev server). Returns a Job ID.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to run in the background."
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_terminal_output",
-            "description": "Read the last 100 lines of output from a background job.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "job_id": {
-                        "type": "string",
-                        "description": "The ID of the background job."
-                    }
-                },
-                "required": ["job_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_file_symbols",
-            "description": "Parse a Python file and return a skeleton of all classes and functions without their bodies. Extremely token-efficient for exploring architecture.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "The path to the .py file."
-                    }
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "ask_human",
-            "description": "Pause execution to explicitly ask the human user a question or for clarification.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "question": {
-                        "type": "string",
-                        "description": "The question to ask the user in the terminal."
-                    }
-                },
-                "required": ["question"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "semantic_replace",
-            "description": "Like replace_in_file, but uses fuzzy matching to find the target code if the exact match fails (e.g., if you messed up the indentation).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "The path to the file."
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "The block of code you want to replace."
-                    },
-                    "replacement": {
-                        "type": "string",
-                        "description": "The new block of code."
-                    }
-                },
-                "required": ["path", "target", "replacement"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "arxiv_search",
-            "description": "Search arXiv for academic research papers. Returns titles, authors, abstracts, and PDF links. Use this when implementing ML algorithms, looking for state-of-the-art techniques, or referencing research.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query (e.g., 'transformer attention mechanism', 'YOLO object detection')."
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Optional. Max number of papers to return (default 5)."
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "git_command",
-            "description": "Run a git command (e.g., 'status', 'add -A', 'commit -m \"msg\"', 'log -5', 'diff'). Dangerous operations like force-push are blocked.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The git subcommand to run (without 'git' prefix)."
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "batch_edit_files",
-            "description": "Create or overwrite multiple files in one tool call. Each edit is {path, content}. Use this for scaffolding projects with many files.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "edits": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "path": {"type": "string"},
-                                "content": {"type": "string"}
-                            },
-                            "required": ["path", "content"]
-                        },
-                        "description": "Array of {path, content} objects."
-                    }
-                },
-                "required": ["edits"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "codebase_search",
-            "description": "Search the codebase using BOTH semantic similarity AND regex. Combines vector-based search (finds code by meaning), regex grep (finds exact patterns), and filename matching. Best tool for finding specific code, functions, or patterns.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Natural language description of what you're looking for (e.g., 'database connection setup', 'authentication logic')."
-                    },
-                    "regex": {
-                        "type": "string",
-                        "description": "Optional. A regex pattern to search for exact matches (e.g., 'def train_model', 'import torch')."
-                    },
-                    "directory": {
-                        "type": "string",
-                        "description": "Optional. Subdirectory to limit the search to."
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    # ══════════════════════════════════════════════════════════════
-    # NEW v2 TOOLS — Repository Mapping, LSP Navigation, Self-Heal,
-    #                Task Tracking, Sandbox
-    # ══════════════════════════════════════════════════════════════
-    {
-        "type": "function",
-        "function": {
-            "name": "get_ast_map",
-            "description": "Generate an AST-based architectural map of the entire codebase. Shows every file's classes, methods, function signatures, and imports WITHOUT the code bodies. Extremely token-efficient for understanding large codebases at a glance. Cached for performance.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {"type": "string", "description": "Root directory to map."},
-                    "verbose": {"type": "boolean", "description": "If true, include docstrings and decorators."}
-                },
-                "required": ["directory"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "find_references",
-            "description": "Find ALL usages of a symbol (function, class, variable) across the entire codebase. Like an IDE's 'Find All References'.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string", "description": "The symbol name to search for."},
-                    "directory": {"type": "string", "description": "Optional root directory."}
-                },
-                "required": ["symbol"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "go_to_definition",
-            "description": "Find where a function, class, or variable is DEFINED. Like an IDE's 'Go to Definition'.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "symbol": {"type": "string", "description": "The symbol to find the definition of."},
-                    "directory": {"type": "string", "description": "Optional root directory."}
-                },
-                "required": ["symbol"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "find_implementations",
-            "description": "Find all subclasses or implementations of a class/interface across the codebase.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "class_name": {"type": "string", "description": "The class/interface name."},
-                    "directory": {"type": "string", "description": "Optional root directory."}
-                },
-                "required": ["class_name"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_call_graph",
-            "description": "Find all functions that CALL a given function. Useful for impact analysis before refactoring.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "function_name": {"type": "string", "description": "The function name."},
-                    "directory": {"type": "string", "description": "Optional root directory."}
-                },
-                "required": ["function_name"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lint_check",
-            "description": "Run linter (ruff) on a Python file and return all lint errors with line numbers and codes.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "filepath": {"type": "string", "description": "Path to the file to lint."}
-                },
-                "required": ["filepath"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_tests",
-            "description": "Run the project's test suite (auto-detects pytest/npm test). Returns pass/fail counts and error details.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "test_command": {"type": "string", "description": "Optional custom test command. Auto-detected if not provided."}
-                },
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_task",
-            "description": "Create a task in the persistent scratchpad. Use this to track multi-step work and stay oriented.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "Short task title."},
-                    "description": {"type": "string", "description": "Optional detailed description."},
-                    "priority": {"type": "string", "description": "Priority: high, normal, or low."}
-                },
-                "required": ["title"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "complete_task",
-            "description": "Mark a task as complete in the scratchpad.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "task_id": {"type": "integer", "description": "The task ID to mark complete."}
-                },
-                "required": ["task_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_tasks",
-            "description": "View all current tasks and their status from the scratchpad.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_subtask",
-            "description": "Add a subtask to an existing task.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "task_id": {"type": "integer", "description": "Parent task ID."},
-                    "subtask": {"type": "string", "description": "Subtask description."}
-                },
-                "required": ["task_id", "subtask"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_note",
-            "description": "Add a free-form note to the scratchpad for future reference.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "note": {"type": "string", "description": "The note text."}
-                },
-                "required": ["note"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_goal",
-            "description": "Set the high-level session goal. This is displayed in the scratchpad and helps maintain focus.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "goal": {"type": "string", "description": "The session goal."}
-                },
-                "required": ["goal"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "sandbox_status",
-            "description": "Check the Docker sandbox status (enabled/disabled, active containers, resource limits).",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "scan_codebase",
-            "description": "Deep scan the ENTIRE codebase — reads every file (code, models, data, docs, scripts, configs), understands what each module does, maps connections between them, detects the tech stack, and saves a persistent brain document. Use this when the user says 'scan the codebase' or when you need to deeply understand a project before making changes. After scanning, the brain auto-injects into your context on every turn.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {"type": "string", "description": "Root directory to scan. Defaults to FOLDER_PATH."}
-                },
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "verify_project",
-            "description": "Run full project verification: compile check all Python files, validate imports resolve, lint check, run tests if they exist, and verify tool schema consistency. Returns a structured pass/fail report. Use this AFTER making changes to verify nothing is broken.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "directory": {"type": "string", "description": "Root directory to verify. Defaults to FOLDER_PATH."}
-                },
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "query_graph",
-            "description": "Query the Semantic Code Graph to find what depends on a specific function, class, or file. Use this for zero-regression refactoring to know exactly what will break if you change a component.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query_node_name": {"type": "string", "description": "The exact name of the function, class, or file to query."}
-                },
-                "required": ["query_node_name"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "github_comment",
-            "description": "Post a comment on a GitHub Issue or Pull Request. Requires GITHUB_TOKEN env var.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "repo": {"type": "string", "description": "Full repo name, e.g. 'owner/repo'"},
-                    "issue_or_pr_number": {"type": "integer", "description": "Issue or PR number"},
-                    "comment_body": {"type": "string", "description": "Markdown text to post as comment"}
-                },
-                "required": ["repo", "issue_or_pr_number", "comment_body"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "github_pr_review",
-            "description": "Submit a formal review on a GitHub Pull Request (approve, request changes, or comment). Requires GITHUB_TOKEN env var.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "repo": {"type": "string", "description": "Full repo name, e.g. 'owner/repo'"},
-                    "pr_number": {"type": "integer", "description": "Pull request number"},
-                    "body": {"type": "string", "description": "Review summary text (markdown)"},
-                    "event": {"type": "string", "description": "Review action. Must be one of: APPROVE, REQUEST_CHANGES, or COMMENT"}
-                },
-                "required": ["repo", "pr_number", "body", "event"]
-            }
-        }
-    }
+    {"type": "function", "function": {
+        "name": "cat",
+        "description": "Read file (max 200 lines, paginate with start_line/end_line).",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "start_line": {"type": "integer"},
+            "end_line": {"type": "integer"}
+        }, "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "grep",
+        "description": "Regex search across .py/.js/.ts/.html/.css files.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"},
+            "pattern": {"type": "string"}
+        }, "required": ["directory", "pattern"]}}},
+    {"type": "function", "function": {
+        "name": "ls",
+        "description": "List directory.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"}}, "required": ["directory"]}}},
+    {"type": "function", "function": {
+        "name": "semantic_search",
+        "description": "Vector search codebase index by concept.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "index_codebase",
+        "description": "Build vector index. Required before semantic_search.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"}}, "required": ["directory"]}}},
+    {"type": "function", "function": {
+        "name": "edit_file",
+        "description": "Create NEW file (full content, never truncate). Blocked on existing files — use replace_in_file/apply_diff.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+        }, "required": ["path", "content"]}}},
+    {"type": "function", "function": {
+        "name": "delete_file",
+        "description": "Delete file.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "get_repo_map",
+        "description": "Repo tree map.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"}}, "required": ["directory"]}}},
+    {"type": "function", "function": {
+        "name": "run_command",
+        "description": "Run shell command.",
+        "parameters": {"type": "object", "properties": {
+            "command": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {
+        "name": "replace_in_file",
+        "description": "Replace exact text in file (single change). Target must be unique — include context lines.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "target": {"type": "string"},
+            "replacement": {"type": "string"}
+        }, "required": ["path", "target", "replacement"]}}},
+    {"type": "function", "function": {
+        "name": "apply_diff",
+        "description": "Multiple search/replace blocks in one file.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "diffs": {"type": "array", "items": {"type": "object", "properties": {
+                "search": {"type": "string"}, "replace": {"type": "string"}
+            }, "required": ["search", "replace"]}}
+        }, "required": ["path", "diffs"]}}},
+    {"type": "function", "function": {
+        "name": "websearch",
+        "description": "DuckDuckGo web search.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "read_url",
+        "description": "Fetch URL as clean text.",
+        "parameters": {"type": "object", "properties": {
+            "url": {"type": "string"}}, "required": ["url"]}}},
+    {"type": "function", "function": {
+        "name": "run_background_command",
+        "description": "Start background process (servers, watchers). Returns job_id.",
+        "parameters": {"type": "object", "properties": {
+            "command": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {
+        "name": "read_terminal_output",
+        "description": "Last 100 lines from background job.",
+        "parameters": {"type": "object", "properties": {
+            "job_id": {"type": "string"}}, "required": ["job_id"]}}},
+    {"type": "function", "function": {
+        "name": "get_file_symbols",
+        "description": "Python file skeleton (classes/functions, no bodies). Token-efficient.",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {
+        "name": "ask_human",
+        "description": "Ask user for clarification.",
+        "parameters": {"type": "object", "properties": {
+            "question": {"type": "string"}}, "required": ["question"]}}},
+    {"type": "function", "function": {
+        "name": "semantic_replace",
+        "description": "Fuzzy-match replace (use when exact replace_in_file fails).",
+        "parameters": {"type": "object", "properties": {
+            "path": {"type": "string"},
+            "target": {"type": "string"},
+            "replacement": {"type": "string"}
+        }, "required": ["path", "target", "replacement"]}}},
+    {"type": "function", "function": {
+        "name": "arxiv_search",
+        "description": "Search arXiv papers.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string"},
+            "max_results": {"type": "integer"}
+        }, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "git_command",
+        "description": "Git subcommand (no 'git' prefix). Force-push blocked.",
+        "parameters": {"type": "object", "properties": {
+            "command": {"type": "string"}}, "required": ["command"]}}},
+    {"type": "function", "function": {
+        "name": "batch_edit_files",
+        "description": "Create/overwrite many files at once.",
+        "parameters": {"type": "object", "properties": {
+            "edits": {"type": "array", "items": {"type": "object", "properties": {
+                "path": {"type": "string"}, "content": {"type": "string"}
+            }, "required": ["path", "content"]}}
+        }, "required": ["edits"]}}},
+    {"type": "function", "function": {
+        "name": "codebase_search",
+        "description": "Hybrid semantic+regex+filename search.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string"},
+            "regex": {"type": "string"},
+            "directory": {"type": "string"}
+        }, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "get_ast_map",
+        "description": "AST map: classes/methods/imports across repo, no bodies. Use first to grok large codebases.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"},
+            "verbose": {"type": "boolean"}
+        }, "required": ["directory"]}}},
+    {"type": "function", "function": {
+        "name": "find_references",
+        "description": "Find all usages of a symbol.",
+        "parameters": {"type": "object", "properties": {
+            "symbol": {"type": "string"},
+            "directory": {"type": "string"}
+        }, "required": ["symbol"]}}},
+    {"type": "function", "function": {
+        "name": "go_to_definition",
+        "description": "Find where a symbol is defined.",
+        "parameters": {"type": "object", "properties": {
+            "symbol": {"type": "string"},
+            "directory": {"type": "string"}
+        }, "required": ["symbol"]}}},
+    {"type": "function", "function": {
+        "name": "find_implementations",
+        "description": "Find subclasses/implementations.",
+        "parameters": {"type": "object", "properties": {
+            "class_name": {"type": "string"},
+            "directory": {"type": "string"}
+        }, "required": ["class_name"]}}},
+    {"type": "function", "function": {
+        "name": "get_call_graph",
+        "description": "Find callers of a function.",
+        "parameters": {"type": "object", "properties": {
+            "function_name": {"type": "string"},
+            "directory": {"type": "string"}
+        }, "required": ["function_name"]}}},
+    {"type": "function", "function": {
+        "name": "lint_check",
+        "description": "Ruff lint a Python file.",
+        "parameters": {"type": "object", "properties": {
+            "filepath": {"type": "string"}}, "required": ["filepath"]}}},
+    {"type": "function", "function": {
+        "name": "run_tests",
+        "description": "Auto-detect + run pytest/npm test.",
+        "parameters": {"type": "object", "properties": {
+            "test_command": {"type": "string"}}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "create_task",
+        "description": "Add task to scratchpad.",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "description": {"type": "string"},
+            "priority": {"type": "string"}
+        }, "required": ["title"]}}},
+    {"type": "function", "function": {
+        "name": "complete_task",
+        "description": "Mark task done.",
+        "parameters": {"type": "object", "properties": {
+            "task_id": {"type": "integer"}}, "required": ["task_id"]}}},
+    {"type": "function", "function": {
+        "name": "get_tasks",
+        "description": "List all tasks.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "add_subtask",
+        "description": "Add subtask under a task.",
+        "parameters": {"type": "object", "properties": {
+            "task_id": {"type": "integer"},
+            "subtask": {"type": "string"}
+        }, "required": ["task_id", "subtask"]}}},
+    {"type": "function", "function": {
+        "name": "add_note",
+        "description": "Add note to scratchpad.",
+        "parameters": {"type": "object", "properties": {
+            "note": {"type": "string"}}, "required": ["note"]}}},
+    {"type": "function", "function": {
+        "name": "set_goal",
+        "description": "Set session goal.",
+        "parameters": {"type": "object", "properties": {
+            "goal": {"type": "string"}}, "required": ["goal"]}}},
+    {"type": "function", "function": {
+        "name": "sandbox_status",
+        "description": "Docker sandbox state.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "scan_codebase",
+        "description": "Deep-scan repo → persistent brain doc auto-injected next turn.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"}}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "verify_project",
+        "description": "Compile + import + lint + tests pass/fail report.",
+        "parameters": {"type": "object", "properties": {
+            "directory": {"type": "string"}}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "query_graph",
+        "description": "Semantic graph: find dependents of a function/class/file before refactor.",
+        "parameters": {"type": "object", "properties": {
+            "query_node_name": {"type": "string"}}, "required": ["query_node_name"]}}},
+    {"type": "function", "function": {
+        "name": "github_comment",
+        "description": "Post comment on Issue/PR. Needs GITHUB_TOKEN.",
+        "parameters": {"type": "object", "properties": {
+            "repo": {"type": "string"},
+            "issue_or_pr_number": {"type": "integer"},
+            "comment_body": {"type": "string"}
+        }, "required": ["repo", "issue_or_pr_number", "comment_body"]}}},
+    {"type": "function", "function": {
+        "name": "github_pr_review",
+        "description": "Submit PR review. Needs GITHUB_TOKEN.",
+        "parameters": {"type": "object", "properties": {
+            "repo": {"type": "string"},
+            "pr_number": {"type": "integer"},
+            "body": {"type": "string"},
+            "event": {"type": "string", "description": "APPROVE | REQUEST_CHANGES | COMMENT"}
+        }, "required": ["repo", "pr_number", "body", "event"]}}}
 ]
 
 def execute_tool(tool_name: str, args: dict) -> str:

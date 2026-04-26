@@ -95,58 +95,25 @@ PARALLELIZABLE_TOOLS = {
     'get_tasks', 'sandbox_status', 'query_graph',
 }
 
-# Feature 4: Few-Shot Tool Call Examples
-# Small models learn by imitation. These synthetic examples are injected into
-# conversation history to teach the model exactly what a correct tool call looks like.
+# Few-shot tool examples (compact). Only injected for "fast"/small models on the first turn
+# to teach correct tool-call format. Mid/large models don't need these — saves ~250 tokens/turn.
 FEW_SHOT_EXAMPLES = [
+    {"role": "user", "content": "fix import in src/main.py"},
     {
-        "role": "user",
-        "content": "Read the file src/main.py and then fix the import error."
+        "role": "assistant", "content": None,
+        "tool_calls": [{"id": "ex1", "type": "function",
+            "function": {"name": "cat", "arguments": '{"path":"src/main.py"}'}}]
     },
+    {"role": "tool", "tool_call_id": "ex1", "name": "cat",
+     "content": "from utils import helper"},
     {
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [
-            {
-                "id": "example_1",
-                "type": "function",
-                "function": {
-                    "name": "cat",
-                    "arguments": '{"path": "src/main.py"}'
-                }
-            }
-        ]
+        "role": "assistant", "content": None,
+        "tool_calls": [{"id": "ex2", "type": "function",
+            "function": {"name": "replace_in_file",
+                "arguments": '{"path":"src/main.py","target":"from utils import helper","replacement":"from utils.helper import run"}'}}]
     },
-    {
-        "role": "tool",
-        "tool_call_id": "example_1",
-        "name": "cat",
-        "content": "import os\nimport sys\nfrom utils import helper  # line 3\n\ndef main():\n    helper.run()"
-    },
-    {
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [
-            {
-                "id": "example_2",
-                "type": "function",
-                "function": {
-                    "name": "replace_in_file",
-                    "arguments": '{"path": "src/main.py", "target": "from utils import helper", "replacement": "from utils.helper import run"}'
-                }
-            }
-        ]
-    },
-    {
-        "role": "tool",
-        "tool_call_id": "example_2",
-        "name": "replace_in_file",
-        "content": "Replaced 1 occurrence in src/main.py"
-    },
-    {
-        "role": "assistant",
-        "content": "I read `src/main.py`, found the broken import on line 3, and replaced `from utils import helper` with `from utils.helper import run` to fix the ImportError."
-    }
+    {"role": "tool", "tool_call_id": "ex2", "name": "replace_in_file", "content": "OK"},
+    {"role": "assistant", "content": "Fixed import."}
 ]
 
 def _safe_parse_json(raw: str) -> dict:
@@ -532,6 +499,14 @@ def call_llm_with_tools(messages, task_type="mid", role=None):
     # Dynamic tool selection based on intent (Extreme pruning for 'fast' models)
     active_tools = _select_tools_for_intent(messages, task_type=task_type, role=role)
     tool_count = len(active_tools)
+
+    # Token-saver: only inject few-shot for small/fast models on first call.
+    # Larger models (mid/complex/review) follow tool schema natively without examples.
+    if task_type == "fast" and not any(m.get("content", "").startswith("[FS]") for m in messages):
+        sys_idx = 1 if messages and messages[0].get("role") == "system" else 0
+        marker = {"role": "user", "content": "[FS]"}
+        injected = [marker] + FEW_SHOT_EXAMPLES
+        messages[sys_idx:sys_idx] = injected
     if active_tools:
         tool_names = [t["function"]["name"] for t in active_tools]
         console.print(f"  [dim]🔧 Role '{role or 'auto'}': {tool_count} tools loaded: {', '.join(tool_names[:6])}{'...' if tool_count > 6 else ''}[/dim]")
@@ -708,50 +683,44 @@ def call_llm_with_tools(messages, task_type="mid", role=None):
 
 
 def init_messages(path):
+    # Memory file (cap to 1200 chars to bound system prompt)
     memory_path = os.path.join(path, ".agent_memory.md")
-    memory_content = "No long-term memory recorded yet."
+    memory_content = ""
     if os.path.exists(memory_path):
         try:
             with open(memory_path, "r", encoding="utf-8") as f:
-                memory_content = f.read()
+                memory_content = f.read()[:1200]
         except Exception:
             pass
 
-# Try to load scratchpad context
+    # Scratchpad (cap 600)
     scratchpad_context = ""
     try:
         from core.scratchpad import get_scratchpad_context
-        scratchpad_context = get_scratchpad_context(path)
+        scratchpad_context = get_scratchpad_context(path)[:600]
     except Exception:
         pass
 
-    # Try to load active plan context
+    # Active plan (cap 1000)
     plan_context = ""
     try:
         from core.planner import load_plan, format_plan_for_context
         active_plan = load_plan(path)
         if active_plan:
-            plan_context = format_plan_for_context(active_plan)
+            plan_context = format_plan_for_context(active_plan)[:1000]
     except Exception:
         pass
 
-    extra_context = ""
-    if scratchpad_context:
-        extra_context += f"\n\nACTIVE SCRATCHPAD:\n{scratchpad_context}"
-    if plan_context:
-        extra_context += f"\n\nACTIVE PLAN:\n{plan_context}"
-
-    # Try to load brain context (deep codebase understanding)
+    # Brain (cap 1500 — most modules listed compactly already)
     brain_context = ""
     try:
         from core.codebase_brain import get_brain_context
-        brain_context = get_brain_context(path)
+        brain_context = get_brain_context(path)[:1500]
     except Exception:
         pass
-    if brain_context:
-        extra_context += f"\n\nCODEBASE BRAIN (deep understanding from last scan):\n{brain_context}"
 
-    # Git awareness: inject live git state so agent knows branch/dirty files on every session
+    # Git: branch + dirty files only (drop log — agent can `git log` if needed)
+    git_ctx = ""
     try:
         _branch = subprocess.run(
             ["git", "branch", "--show-current"], capture_output=True, text=True,
@@ -761,56 +730,43 @@ def init_messages(path):
             ["git", "status", "--short"], capture_output=True, text=True,
             timeout=5, cwd=path, encoding='utf-8', errors='replace'
         ).stdout.strip()
-        _log = subprocess.run(
-            ["git", "log", "--oneline", "-5"], capture_output=True, text=True,
-            timeout=5, cwd=path, encoding='utf-8', errors='replace'
-        ).stdout.strip()
         if _branch:
-            _git_ctx = f"\n\nGIT STATE (at session start):\n  Branch: {_branch}\n"
+            git_ctx = f"\nGIT: {_branch}"
             if _status:
-                _git_ctx += f"  Modified files:\n{_status[:400]}\n"
-            if _log:
-                _git_ctx += f"  Recent commits:\n{_log[:400]}\n"
-            extra_context += _git_ctx
+                git_ctx += f"\nDIRTY:\n{_status[:300]}"
     except Exception:
         pass
+
+    extras = []
+    if scratchpad_context:
+        extras.append(f"SCRATCHPAD:\n{scratchpad_context}")
+    if plan_context:
+        extras.append(f"PLAN:\n{plan_context}")
+    if brain_context:
+        extras.append(f"BRAIN:\n{brain_context}")
+    if memory_content:
+        extras.append(f"MEMORY:\n{memory_content}")
+    extra_block = ("\n\n" + "\n\n".join(extras)) if extras else ""
 
     messages = [
         {
             "role": "system",
-            "content": f"""Autonomous AI software engineer. Root: {path} (Windows — use Windows/relative paths only).
+            "content": f"""REVI — autonomous coding agent. Root: {path} (Windows paths).
 
-WORKFLOW:
-1. UNDERSTAND — get_ast_map → cat relevant files → find_references/go_to_definition if needed → get_tasks
-2. PLAN (>2 files) — set_goal → create_task per step → <thinking>: order, risks, what changes
-3. BUILD — one file at a time → lint_check after each .py → complete_task per step
-4. VERIFY — verify_project → fix → repeat max 3× → ask_human if stuck
-5. COMMIT — git_command("add -A") → git_command("commit -m 'type(scope): desc'")
-   types: feat/fix/refactor/docs. Push only if asked.
+FLOW: understand (get_ast_map, cat) → plan (set_goal+create_task if >2 files) → build (one file, lint after .py) → verify_project → commit (feat/fix/refactor/docs).
 
-CRITICAL RULES:
-⚠ TOOL-FIRST: Never output code as text. No tool call = nothing happens. Use edit_file/replace_in_file/run_command.
-⚠ COMPLETE WRITES: edit_file content must be the FULL file — never truncate, never use "..." or placeholders. Small models must still write 100% of the code.
-⚠ DIFF-FIRST: edit_file = NEW files only. Existing → replace_in_file (single) or apply_diff (multi). Never overwrite blindly.
-⚠ SELF-HEAL: run_command errors → analyze traceback → fix → rerun. Auto-lint fires on .py edits — fix immediately. Max 3 attempts.
-⚠ READ-FIRST: cat every file before editing. Never guess contents.
-
-⚠ DYNAMIC TOOLS: You are a specialized agent. You ONLY have access to the specific tools provided in your current tool schema. Do NOT attempt to use tools that are not defined in your JSON schema.
-
-<thinking> before each tool: what/why/risk/confidence.
-
-MEMORY (.agent_memory.md):
-{memory_content}
-{extra_context}
+RULES:
+- Tool-first. Code as text = nothing happens.
+- edit_file = NEW only. Existing → replace_in_file / apply_diff. Full file content, never truncate.
+- cat before edit. Self-heal on errors (max 3).
+- Use only tools in current schema.
+- <thinking>what/why/risk</thinking> before tool calls.{git_ctx}{extra_block}
 """
         }
     ]
 
-    # Feature 4: Few-Shot Tool Examples
-    # Inject synthetic examples so small models learn correct tool-call format by imitation.
-    # This dramatically improves tool-calling accuracy for <20B parameter models.
-    messages += FEW_SHOT_EXAMPLES
-
+    # Few-shot examples are now lazy-injected only for "fast" task_type
+    # inside call_llm_with_tools — saves ~250 tokens/turn on mid/complex tasks.
     return messages
 
 def _estimate_tokens(messages):
@@ -823,126 +779,120 @@ def _estimate_tokens(messages):
 
 def _compress_tool_results(messages):
     """Compress large tool outputs to save context space."""
-    MAX_TOOL_CHARS = 15000  # Allow up to ~200 lines of code before truncating
+    MAX_TOOL_CHARS = 4000  # Tighter cap — most edits/errors fit. Big reads should paginate via cat.
     for msg in messages:
         if msg.get("role") == "tool":
             content = msg.get("content", "")
             if len(content) > MAX_TOOL_CHARS:
-                # Keep first and last portion
-                head = content[:5000]
-                tail = content[-5000:]
-                msg["content"] = f"{head}\n\n... [TRUNCATED {len(content) - 10000} chars to save context] ...\n\n{tail}"
+                head = content[:1800]
+                tail = content[-1500:]
+                msg["content"] = f"{head}\n...[trunc {len(content)-3300}ch]...\n{tail}"
+    return messages
+
+def _dedupe_cat_results(messages):
+    """If the same file was cat'd multiple times, replace older copies with a stub."""
+    seen_paths = {}  # path -> latest tool message index
+    for i, msg in enumerate(messages):
+        if msg.get("role") != "tool" or msg.get("name") != "cat":
+            continue
+        content = msg.get("content", "")
+        # cat_tool prefixes "--- File: <path> (Lines ...)"
+        m = re.match(r'--- File:\s+(.+?)\s+\(Lines', content)
+        if not m:
+            continue
+        path = m.group(1).strip()
+        prev = seen_paths.get(path)
+        if prev is not None:
+            # Stub the older copy
+            messages[prev]["content"] = f"[cat {path} — superseded by later read]"
+        seen_paths[path] = i
     return messages
 
 def _summarize_old_turns(messages):
     """Summarize old assistant messages into compact notes."""
     for i, msg in enumerate(messages):
-        if msg.get("role") == "assistant" and i < len(messages) - 10:
+        if msg.get("role") == "assistant" and i < len(messages) - 6:
             content = msg.get("content", "") or ""
-            if len(content) > 500:
-                msg["content"] = content[:400] + "\n\n[... response truncated for context efficiency ...]"
+            if len(content) > 300:
+                msg["content"] = content[:200] + "\n[...trunc...]"
     return messages
 
 def prune_messages(messages):
-    """Claude Code-style context compaction."""
-    MAX_TOKENS = 8000  # Aggressively drop old turns to keep runs cheap
-    
-    # Work on a copy so the caller's .clear() doesn't wipe our result
+    """Aggressive context compaction for token efficiency."""
+    MAX_TOKENS = 5000  # Drop old turns earlier — Groq/Gemini bills per token
+
     msgs = [m.copy() for m in messages]
-    
-    # Step 1: Compress large tool outputs
+    msgs = _dedupe_cat_results(msgs)
     msgs = _compress_tool_results(msgs)
-    
-    # Step 2: Summarize old assistant turns
     msgs = _summarize_old_turns(msgs)
-    
-    # Step 3: If still too large, drop oldest turns (keeping system + recent)
+
     tokens = _estimate_tokens(msgs)
-    if tokens > MAX_TOKENS and len(msgs) > 6:
+    if tokens > MAX_TOKENS and len(msgs) > 4:
         system_prompt = msgs[0]
-        tail = msgs[-10:]
-        
-        # Ensure we don't start the tail with a 'tool' role
+        tail = msgs[-6:]
         while tail and tail[0]["role"] == "tool":
             tail.pop(0)
-        
-        # Create a compact summary of what was dropped
+
         dropped_count = len(msgs) - 1 - len(tail)
         summary_msg = {
             "role": "user",
-            "content": f"[Context compacted: {dropped_count} older messages were dropped to save space. Refer to .agent_memory.md for persistent context.]"
+            "content": f"[compacted {dropped_count} older msgs]"
         }
-        
         msgs = [system_prompt, summary_msg] + tail
-        console.print(f"[dim]  >> Context compacted: dropped {dropped_count} old messages ({tokens} -> ~{_estimate_tokens(msgs)} tokens)[/dim]")
-    
+        console.print(f"[dim]  >> Compacted: -{dropped_count} msgs ({tokens}→~{_estimate_tokens(msgs)} tok)[/dim]")
+
     return msgs
 
 def run_turn(messages, instruction):
-    # Detect task complexity and optionally engage the Architect
+    # Compute complexity ONCE — used by architect, model routing, reviewer, verify
     try:
-        from core.planner import detect_complexity, run_architect, save_plan, format_plan_for_context
-        from core.repo_map import get_ast_repo_map
+        from core.planner import detect_complexity
         complexity = detect_complexity(instruction)
-        
-        if complexity == "complex":
-            console.print(f"  [bold magenta]📐 Complex task detected — engaging Architect agent...[/bold magenta]")
-            
-            # Get repo context for the architect
+    except Exception:
+        complexity = "simple"
+
+    # Engage Architect only for complex tasks
+    if complexity == "complex":
+        try:
+            from core.planner import run_architect, save_plan, format_plan_for_context
+            from core.repo_map import get_ast_repo_map
+            console.print(f"  [bold magenta]📐 Complex task — engaging Architect[/bold magenta]")
+
             path = os.getenv("FOLDER_PATH", ".")
             repo_context = ""
             try:
                 repo_context = get_ast_repo_map(path)
             except Exception:
                 pass
-            
+
             plan = run_architect(instruction, repo_context)
             if plan:
                 save_plan(plan, path)
                 plan_summary = format_plan_for_context(plan)
-                
-                # Build a methodology-aware instruction injection
-                plan_injection = f"""
-
-[ARCHITECT'S PLAN — Follow this systematically]
-{plan_summary}
-
-YOUR EXECUTION INSTRUCTIONS:
-1. First, use `set_goal` to record the objective: "{plan.get('summary', instruction[:80])}"
-2. Use `create_task` for each step in the plan above.
-3. Execute steps in order. For EACH step:
-   a. Read all relevant files with `cat` BEFORE editing them.
-   b. Make the changes.
-   c. Run `lint_check` on each modified Python file.
-   d. Use `complete_task` to mark the step done.
-4. After ALL steps are done, run `run_tests` to verify everything works.
-5. If tests pass, use `git_command("add -A")` then `git_command('commit -m "..."')` with a proper conventional commit message.
-6. Provide a summary of what you did.
-"""
-                instruction = instruction + plan_injection
-    except Exception as e:
-        console.print(f"  [dim]Planner skipped: {e}[/dim]")
+                # Terse injection — agent already knows workflow from system prompt
+                instruction = (
+                    f"{instruction}\n\n[PLAN]\n{plan_summary}\n\n"
+                    f"Execute steps in order. set_goal+create_task per step. "
+                    f"cat before edit. lint after .py. run_tests at end. commit."
+                )
+        except Exception as e:
+            console.print(f"  [dim]Planner skipped: {e}[/dim]")
 
     messages.append({
         "role": "user",
         "content": instruction
     })
-    
-    # If we engaged the architect, or if it's a simple task, we use the detected complexity for model routing
-    try:
-        from core.planner import detect_complexity
-        complexity = detect_complexity(instruction)
-    except Exception:
-        complexity = "mid"
-        
-    result = call_llm_with_tools(messages, task_type=complexity)
-    
+
+    # Map complexity → task_type for model router
+    task_type = "complex" if complexity == "complex" else ("mid" if complexity == "medium" else "fast")
+    result = call_llm_with_tools(messages, task_type=task_type)
+
     # REVIEWER PASS (for complex/medium tasks)
     try:
-        from core.planner import detect_complexity, run_reviewer, load_plan
+        from core.planner import run_reviewer, load_plan
         path = os.getenv("FOLDER_PATH", ".")
         active_plan = load_plan(path)
-        if active_plan and detect_complexity(instruction) == "complex":
+        if active_plan and complexity == "complex":
             # Get actual git diff for the reviewer (much better than text summary)
             import subprocess
             diff_context = ""
@@ -951,59 +901,47 @@ YOUR EXECUTION INSTRUCTIONS:
                     ["git", "diff", "--stat"], capture_output=True, text=True,
                     timeout=10, cwd=path, encoding='utf-8', errors='replace'
                 )
-                diff_context = diff_result.stdout[:1500]
+                diff_context = diff_result.stdout[:600]
 
-                # Also get the actual code diff (abbreviated)
                 full_diff = subprocess.run(
                     ["git", "diff"], capture_output=True, text=True,
                     timeout=10, cwd=path, encoding='utf-8', errors='replace'
                 )
-                diff_context += "\n\nCode changes:\n" + full_diff.stdout[:2500]
+                diff_context += "\n\n" + full_diff.stdout[:1200]
             except Exception:
-                diff_context = result[:2000] if result else ""
+                diff_context = result[:1200] if result else ""
             
-            console.print("  [bold cyan]🔍 Running Reviewer agent...[/bold cyan]")
+            console.print("  [bold cyan]🔍 Reviewer[/bold cyan]")
             review = run_reviewer(instruction, diff_context)
             if review and review.get("verdict") == "request_changes":
-                console.print("  [yellow]📝 Reviewer requested changes — sending back to executor...[/yellow]")
-                # Append first-pass result as context before injecting reviewer feedback
+                console.print("  [yellow]📝 Reviewer requested changes[/yellow]")
                 messages.append({"role": "assistant", "content": result})
-                review_feedback = f"[REVIEWER FEEDBACK] Score: {review.get('score', '?')}/10. Issues: "
+                fb = f"[REVIEW {review.get('score','?')}/10] "
                 for issue in review.get("issues", [])[:3]:
-                    review_feedback += f"\n- [{issue.get('severity', '?')}] {issue.get('description', '')} -> Fix: {issue.get('fix', '')}"
-                review_feedback += "\n\nPlease fix these issues. Read the affected files first, make the corrections, then lint_check each one."
-                messages.append({"role": "user", "content": review_feedback})
+                    fb += f"\n- {issue.get('severity','?')}: {issue.get('description','')} → {issue.get('fix','')}"
+                fb += "\nFix: cat affected files, correct, lint_check."
+                messages.append({"role": "user", "content": fb})
                 fix_result = call_llm_with_tools(messages, task_type="review", role="reviewer")
-                result = fix_result  # line 964 appends the final result
+                result = fix_result
     except Exception:
         pass
 
-    # AUTO-VERIFICATION (for complex/medium tasks — runs compile, import, lint checks)
+    # AUTO-VERIFICATION (complex tasks only)
     try:
-        from core.planner import detect_complexity
-        if detect_complexity(instruction) == "complex":
+        if complexity == "complex":
             from core.verify import run_full_verification, format_verification_report
             path = os.getenv("FOLDER_PATH", ".")
             console.print("  [bold cyan]🔍 Auto-verifying changes...[/bold cyan]")
             verify_report = run_full_verification(path)
             
             if verify_report["overall"] == "FAIL":
-                # Feed failures back to the agent for self-healing
                 report_text = format_verification_report(verify_report)
-                console.print("  [bold red]❌ Verification FAILED — sending back for fixes...[/bold red]")
-                # Append current result as context before injecting fix prompt
+                console.print("  [bold red]❌ Verify FAIL — fixing[/bold red]")
                 messages.append({"role": "assistant", "content": result})
-                fix_prompt = (
-                    f"[AUTO-VERIFICATION FAILED]\n{report_text}\n\n"
-                    "Please fix the issues above. For each failed check:\n"
-                    "1. Read the failing file with `cat`\n"
-                    "2. Fix the issue with `replace_in_file`\n"
-                    "3. Run `lint_check` on the fixed file\n"
-                    "4. Then run `verify_project` to confirm everything passes."
-                )
+                fix_prompt = f"[VERIFY FAIL]\n{report_text}\nFix each: cat → replace_in_file → lint_check → verify_project."
                 messages.append({"role": "user", "content": fix_prompt})
                 fix_result = call_llm_with_tools(messages, task_type="mid", role="editor")
-                result = fix_result  # line 964 appends the final result
+                result = fix_result
             else:
                 console.print(f"  [bold green]✅ Verification PASSED ({verify_report.get('summary', '')})[/bold green]")
     except Exception:

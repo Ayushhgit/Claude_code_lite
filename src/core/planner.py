@@ -20,54 +20,18 @@ from utils.ui import console
 
 # ─── Agent Persona Prompts ──────────────────────────────────────────────────
 
-ARCHITECT_SYSTEM = """ARCHITECT agent. Study given AST map → design phased plan → return JSON only.
+ARCHITECT_SYSTEM = """ARCHITECT. Study AST → return JSON only.
 
-Read AST map: existing modules, patterns, naming, dependencies, integration points.
-Order steps: foundation → implementation → integration → verification.
+JSON schema:
+{"summary":"goal","complexity":"simple|medium|complex","understanding":"2-3 sentences","new_files":[],"modified_files":[],"steps":[{"id":1,"phase":"foundation|implementation|integration|verification","action":"exact: files+funcs+classes","files":[],"details":"funcs/imports/patterns","dependencies":[],"validation":"py_compile path | lint_check | run_tests"}],"integration_points":["file:function"],"risks":[],"estimated_turns":3}
 
-OUTPUT (strict JSON, no markdown, no text outside):
-{
-  "summary": "one-line goal",
-  "complexity": "simple|medium|complex",
-  "understanding": "2-3 sentences on existing architecture",
-  "new_files": ["files to create"],
-  "modified_files": ["existing files to change"],
-  "steps": [
-    {
-      "id": 1,
-      "phase": "foundation|implementation|integration|verification",
-      "action": "exact description — name files, functions, classes",
-      "files": ["exact paths"],
-      "details": "functions/imports/patterns to use",
-      "dependencies": [],
-      "validation": "exact check (py_compile path, lint_check, run_tests)"
-    }
-  ],
-  "integration_points": ["existing file:function where new code wires in"],
-  "risks": ["potential issues"],
-  "estimated_turns": 3
-}
+Rules: exact paths+names; each step independently executable; don't recreate existing files; match project conventions."""
 
-RULES:
-- Exact file paths + function names per step. No vague steps.
-- Each step independently executable and verifiable.
-- Don't create files that already exist. Match project conventions.
-- integration_points: exact existing locations new code connects to.
-"""
+REVIEWER_SYSTEM = """REVIEWER. Critique diff → JSON only.
 
-REVIEWER_SYSTEM = """REVIEWER agent. Given request + executor diff → structured critique as JSON only.
+{"verdict":"approve|request_changes|reject","score":1-10,"issues":[{"severity":"critical|warning|suggestion","file":"path","description":"what","fix":"how"}],"summary":"2-3 sentences","tests_to_run":["cmd"]}
 
-OUTPUT (strict JSON):
-{
-  "verdict": "approve|request_changes|reject",
-  "score": 8,
-  "issues": [{"severity": "critical|warning|suggestion", "file": "path", "description": "what", "fix": "how"}],
-  "summary": "2-3 sentence assessment",
-  "tests_to_run": ["commands to verify"]
-}
-
-RULES: Score 1-10 (7+=approve, 4-6=request_changes, 1-3=reject). Focus: correctness, security, maintainability. ≥1 test command. JSON only.
-"""
+Score: 7+ approve, 4-6 changes, 1-3 reject. Focus: correctness, security, maintainability."""
 
 
 # ─── Complexity Detection ───────────────────────────────────────────────────
@@ -126,32 +90,29 @@ def run_architect(instruction: str, repo_context: str = "") -> dict:
     
     context_parts = []
     
-    # 1. AST map (architecture skeleton)
+    # 1. AST map
     if repo_context:
-        context_parts.append(f"CODEBASE ARCHITECTURE (AST Map):\n{repo_context[:4000]}")
-    
-    # 2. Key project files (entry points, config, manifests)
-    key_files = [
-        "requirements.txt", "package.json", "pyproject.toml",
-        ".env", "README.md", "Makefile", "Dockerfile",
-    ]
+        context_parts.append(f"AST:\n{repo_context[:2000]}")
+
+    # 2. Key project files — only the most signal-rich, smaller cap
+    key_files = ["requirements.txt", "package.json", "pyproject.toml", "README.md"]
     for kf in key_files:
         kf_path = os.path.join(path, kf)
         if os.path.exists(kf_path):
             try:
                 with open(kf_path, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()[:800]
-                context_parts.append(f"FILE: {kf}\n{content}")
+                    content = f.read()[:400]
+                context_parts.append(f"{kf}:\n{content}")
             except Exception:
                 pass
-    
-    # 3. Agent memory (historical context)
+
+    # 3. Agent memory
     memory_path = os.path.join(path, ".agent_memory.md")
     if os.path.exists(memory_path):
         try:
             with open(memory_path, "r", encoding="utf-8") as f:
-                memory = f.read()[:500]
-            context_parts.append(f"AGENT MEMORY (past sessions):\n{memory}")
+                memory = f.read()[:300]
+            context_parts.append(f"MEM:\n{memory}")
         except Exception:
             pass
     
@@ -216,7 +177,7 @@ def run_reviewer(instruction: str, changes_summary: str) -> dict:
     """
     messages = [
         {"role": "system", "content": REVIEWER_SYSTEM},
-        {"role": "user", "content": f"ORIGINAL REQUEST:\n{instruction}\n\nCHANGES MADE:\n{changes_summary[:4000]}"}
+        {"role": "user", "content": f"REQ:\n{instruction}\n\nDIFF:\n{changes_summary[:1500]}"}
     ]
 
     console.print("  [bold cyan]🔍 Reviewer agent is inspecting the changes...[/bold cyan]")
