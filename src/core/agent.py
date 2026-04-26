@@ -397,7 +397,7 @@ def _execute_parallel_tools(tool_calls_list, messages, files_read_this_turn):
             "content": str(tool_result)
         })
 
-def _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn):
+def _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn, write_counts=None):
     """Execute tools one-by-one with safety guards and self-healing analysis."""
     from utils.ui import broadcast_sync
     for tool_call in tool_calls_list:
@@ -432,6 +432,25 @@ def _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn):
                     "content": tool_result
                 })
                 continue
+
+            # Repeat-write guard: block same tool+path after 4 identical writes
+            WRITE_TOOLS = {"edit_file", "replace_in_file", "apply_diff", "batch_edit_files"}
+            if write_counts is not None and tool_name in WRITE_TOOLS:
+                write_key = f"{tool_name}:{args.get('path', '')}"
+                write_counts[write_key] = write_counts.get(write_key, 0) + 1
+                if write_counts[write_key] > 4:
+                    console.print(f"  [bold red]✗ Loop detected: '{tool_name}' on '{args.get('path','')}' called {write_counts[write_key]}x. Blocking.[/bold red]")
+                    tool_result = (
+                        f"BLOCKED: You have already called {tool_name} on this file {write_counts[write_key]} times. "
+                        "This is a loop. The task is likely already complete — stop and return your final response."
+                    )
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": tool_result
+                    })
+                    continue
 
             tool_result = execute_tool(tool_name, args)
 
@@ -490,12 +509,16 @@ def _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn):
                 pass
 
 
+MAX_TOOL_ITERATIONS = 60  # hard cap: prevents infinite write loops
+
 def call_llm_with_tools(messages, task_type="mid", role=None):
     bad_retries = 0
     rate_retries = 0
     retry_msg_count = 0  # Track how many error-correction messages we injected
     files_read_this_turn = set()  # Read-before-edit guard: track cat'd paths
-    
+    tool_iter = 0          # iteration counter
+    write_counts: dict[str, int] = {}  # path -> write call count (dedup guard)
+
     # Dynamic tool selection based on intent (Extreme pruning for 'fast' models)
     active_tools = _select_tools_for_intent(messages, task_type=task_type, role=role)
     tool_count = len(active_tools)
@@ -504,8 +527,8 @@ def call_llm_with_tools(messages, task_type="mid", role=None):
         console.print(f"  [dim]🔧 Role '{role or 'auto'}': {tool_count} tools loaded: {', '.join(tool_names[:6])}{'...' if tool_count > 6 else ''}[/dim]")
     else:
         console.print(f"  [dim]🔧 Role '{role or 'auto'}': 0 tools loaded (Thinking Mode)[/dim]")
-    
-    while True:
+
+    while tool_iter < MAX_TOOL_ITERATIONS:
         try:
             with spinner:
                 message = generate(messages, tools=active_tools, task_type=task_type)
@@ -572,6 +595,8 @@ def call_llm_with_tools(messages, task_type="mid", role=None):
                 retry_msg_count += 1
                 continue
 
+        tool_iter += 1
+
         if getattr(message, "tool_calls", None):
             import re
             from utils.ui import broadcast_sync  # must be before any tool execution
@@ -611,7 +636,7 @@ def call_llm_with_tools(messages, task_type="mid", role=None):
             if all_parallel:
                 _execute_parallel_tools(tool_calls_list, messages, files_read_this_turn)
             else:
-                _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn)
+                _execute_sequential_tools(tool_calls_list, messages, files_read_this_turn, write_counts)
         else:
             content = message.content.strip() if message.content else ""
 
@@ -672,6 +697,10 @@ def call_llm_with_tools(messages, task_type="mid", role=None):
                     console.print(f"  [dim]XML rescue failed: {e}[/dim]")
 
             return content
+
+    # Exceeded MAX_TOOL_ITERATIONS — bail out
+    console.print(f"  [bold red]✗ Agent exceeded {MAX_TOOL_ITERATIONS} tool iterations. Aborting to prevent runaway loop.[/bold red]")
+    return f"Error: Agent exceeded {MAX_TOOL_ITERATIONS} tool call iterations without completing. Last instruction may be too complex — try breaking it into smaller steps."
 
 
 def init_messages(path):

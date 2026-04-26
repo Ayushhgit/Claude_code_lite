@@ -70,14 +70,13 @@ TASK_MODEL_MAP = {
     "compound": ["groq/compound", "openai/gpt-oss-120b"],
 }
 
-# Round-robin pool for auto mode (excludes safety/compound — only used when explicitly routed)
+# Round-robin pool for auto mode (safety/compound excluded — routed explicitly only)
 AUTO_ROTATION = [
     "llama-3.1-8b-instant",
     "meta-llama/llama-4-scout-17b-16e-instruct",
     "openai/gpt-oss-20b",
     "qwen/qwen3-32b",
     "openai/gpt-oss-120b",
-    "groq/compound",
 ]
 
 # ── State ─────────────────────────────────────────────────────────────────────

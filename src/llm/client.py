@@ -204,7 +204,24 @@ def _generate_groq(messages, tools, task_type="mid"):
                     console.print(
                         f"  [yellow]⏳ {model} rate limited ({retry_after}s cooldown). Switching model...[/yellow]"
                     )
-                    # No sleep — immediately try a different model
+
+                    # Check if ALL models in rotation are now rate-limited
+                    all_limited = all(
+                        model_router.is_rate_limited(m) for m in model_router.AUTO_ROTATION
+                    )
+                    if all_limited:
+                        # Try Gemini failover first
+                        if os.getenv("GEMINI_API_KEY"):
+                            console.print("  [bold yellow]⚡ All Groq models rate-limited. Failing over to Gemini...[/bold yellow]")
+                            return _generate_gemini(messages, tools)
+
+                        # No Gemini — sleep exactly until the soonest model clears
+                        min_wait = min(
+                            model_router.get_rate_limit_eta(m) for m in model_router.AUTO_ROTATION
+                        )
+                        min_wait = max(min_wait, 1)
+                        console.print(f"  [bold yellow]⚡ All Groq models rate-limited. Sleeping {min_wait}s until next model clears...[/bold yellow]")
+                        time.sleep(min_wait)
                     continue
 
                 # Non-rate-limit error: small backoff, retry same model selection
@@ -216,6 +233,11 @@ def _generate_groq(messages, tools, task_type="mid"):
         else:
             # Inner for-loop completed without a successful return or a key-rotation break
             break
+
+    # Last-resort Gemini failover when all Groq keys exhausted
+    if os.getenv("GEMINI_API_KEY"):
+        console.print("  [bold yellow]⚡ All Groq API keys exhausted. Failing over to Gemini...[/bold yellow]")
+        return _generate_gemini(messages, tools)
 
     raise QuotaExhaustedError(
         f"Groq: all API keys ({total_keys}) and models exhausted after maximum attempts."
